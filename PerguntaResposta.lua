@@ -4,8 +4,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local remote = ReplicatedStorage:WaitForChild("NotificarJogador")
 
-local PERGUNTA_URL = "https://94e4-177-73-181-130.ngrok-free.app/pergunta"
-local RESPOSTA_URL = "https://94e4-177-73-181-130.ngrok-free.app/resposta"
+local PERGUNTA_URL = "https://ef63-177-73-181-130.ngrok-free.app/pergunta"
+local RESPOSTA_URL = "https://ef63-177-73-181-130.ngrok-free.app/resposta"
+local DICA_URL = "https://ef63-177-73-181-130.ngrok-free.app/dica"
 
 local perguntasAtuais = {}
 local jogadorEmEspera = {}
@@ -32,13 +33,42 @@ Players.PlayerAdded:Connect(function(player)
 		player:SetAttribute("ConectadoAoChat", true)
 
 		player.Chatted:Connect(function(msg)
+			local pergunta = perguntasAtuais[player.UserId]
+			if not pergunta then return end
+
+			-- 🧠 Comando de Dica (!dica)
+			if msg:lower() == "ajuda!" or msg:lower() == "help!" then
+				if jogadorEmEspera[player.UserId] then
+					remote:FireClient(player, "Aguardando", "⏳ Já estamos processando algo, aguarde.")
+					return
+				end
+
+				jogadorEmEspera[player.UserId] = true
+				remote:FireClient(player, "Aguardando", "💡 Gerando uma dica para te ajudar...")
+
+				local success, respostaDica = pcall(function()
+					return HttpService:GetAsync(DICA_URL)
+				end)
+
+				remote:FireClient(player, "Ocultar", "")
+
+				if success then
+					local dica = HttpService:JSONDecode(respostaDica)
+					remote:FireClient(player, "Resultado", "💬 Dica: " .. dica.dica)
+				else
+					warn("Erro ao obter dica:", respostaDica)
+					remote:FireClient(player, "Resultado", "❌ Erro ao gerar dica.")
+				end
+
+				jogadorEmEspera[player.UserId] = false
+				return
+			end
+
+			-- 🎯 Verificação de Resposta
 			if jogadorEmEspera[player.UserId] then
 				remote:FireClient(player, "Aguardando", "⏳ Aguarde... analisando sua resposta.")
 				return
 			end
-
-			local pergunta = perguntasAtuais[player.UserId]
-			if not pergunta then return end
 
 			jogadorEmEspera[player.UserId] = true
 			remote:FireClient(player, "Aguardando", "⏳ ChatGPT está analisando sua resposta...")
@@ -56,7 +86,7 @@ Players.PlayerAdded:Connect(function(player)
 				)
 			end)
 
-			remote:FireClient(player, "Ocultar", "") -- oculta mensagem de "Aguardando"
+			remote:FireClient(player, "Ocultar", "")
 
 			if success then
 				local resultado = HttpService:JSONDecode(respostaServer)
