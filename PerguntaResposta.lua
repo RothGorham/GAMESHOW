@@ -4,8 +4,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local remote = ReplicatedStorage:WaitForChild("NotificarJogador")
 
-local PERGUNTA_URL = "https://f2d6-179-153-34-87.ngrok-free.app/pergunta"
-local RESPOSTA_URL = "https://f2d6-179-153-34-87.ngrok-free.app/resposta"
+local PERGUNTA_URL = "https://94e4-177-73-181-130.ngrok-free.app/pergunta"
+local RESPOSTA_URL = "https://94e4-177-73-181-130.ngrok-free.app/resposta"
 
 local perguntasAtuais = {}
 local jogadorEmEspera = {}
@@ -18,10 +18,10 @@ local function enviarPergunta(player)
 	if success then
 		local pergunta = HttpService:JSONDecode(response)
 		perguntasAtuais[player.UserId] = pergunta
-
 		remote:FireClient(player, "Pergunta", pergunta.pergunta)
 	else
 		warn("Erro ao buscar pergunta:", response)
+		remote:FireClient(player, "Resultado", "❌ Erro ao buscar pergunta.")
 	end
 end
 
@@ -56,7 +56,7 @@ Players.PlayerAdded:Connect(function(player)
 				)
 			end)
 
-			remote:FireClient(player, "Ocultar", "") -- esconde "Aguardando"
+			remote:FireClient(player, "Ocultar", "") -- oculta mensagem de "Aguardando"
 
 			if success then
 				local resultado = HttpService:JSONDecode(respostaServer)
@@ -64,11 +64,11 @@ Players.PlayerAdded:Connect(function(player)
 				if resultado.correta then
 					remote:FireClient(player, "Resultado", "✅ Resposta correta!")
 					task.wait(2)
-					enviarPergunta(player) -- nova pergunta
+					enviarPergunta(player)
 				else
 					remote:FireClient(player, "Resultado", "❌ Resposta incorreta!")
 					task.wait(2)
-					remote:FireClient(player, "Pergunta", pergunta.pergunta) -- repete a mesma
+					remote:FireClient(player, "Pergunta", pergunta.pergunta)
 				end
 			else
 				warn("Erro ao consultar IA:", respostaServer)
