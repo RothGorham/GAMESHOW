@@ -14,24 +14,27 @@ mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.n
   .then(() => console.log("✅ Conectado ao MongoDB"))
   .catch(err => console.error("❌ Erro ao conectar com o MongoDB:", err));
 
-// Variável de pergunta atual
+// Variáveis para controle
 let perguntas = [];
+let perguntasUsadas = [];
 
-// SUA API KEY
 const OPENROUTER_API_KEY = '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';
 
-// 🔄 Sorteia uma pergunta do MongoDB e salva na variável
+// 🔄 Sorteia uma pergunta que ainda não foi usada
 app.get('/pergunta', async (req, res) => {
   try {
     const todas = await Pergunta.find();
-    if (!todas.length) return res.status(404).json({ erro: 'Sem perguntas no banco.' });
+    const naoUsadas = todas.filter(p => !perguntasUsadas.includes(p._id.toString()));
 
-    const sorteada = todas[Math.floor(Math.random() * todas.length)];
+    if (!naoUsadas.length) {
+      return res.status(404).json({ erro: 'Todas as perguntas já foram usadas. Reinicie a partida.' });
+    }
 
-    // Atualiza a variável no formato antigo
+    const sorteada = naoUsadas[Math.floor(Math.random() * naoUsadas.length)];
+
     perguntas = [
       {
-        id: 1,
+        id: sorteada._id.toString(),
         pergunta: sorteada.pergunta,
         correta: sorteada.correta
       }
@@ -44,7 +47,7 @@ app.get('/pergunta', async (req, res) => {
   }
 });
 
-// ✅ Verifica resposta usando a variável perguntas[0]
+// ✅ Verifica a resposta do jogador
 app.post('/resposta', async (req, res) => {
   const { resposta } = req.body;
 
@@ -80,7 +83,8 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
     const acertou = texto.includes("true");
 
     if (acertou) {
-      perguntas = []; // limpa a pergunta
+      perguntasUsadas.push(pergunta.id);
+      perguntas = []; // limpa a pergunta ativa
     }
 
     res.json({ correta: acertou });
@@ -91,6 +95,59 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
   }
 });
 
+// 🧠 Gera dica para pergunta ativa
+app.get('/dica', async (req, res) => {
+  if (!perguntas.length) {
+    return res.status(404).json({ erro: "Nenhuma pergunta ativa para gerar dica." });
+  }
+
+  const pergunta = perguntas[0];
+
+  const prompt = `
+A pergunta é: "${pergunta.pergunta}"
+A resposta correta é: "${pergunta.correta}"
+
+Crie uma dica sutil que ajude o jogador a encontrar a resposta correta. A dica deve ser em forma de pergunta indireta ou sugestiva, como por exemplo: "Já pensou em algo que usamos para medir o tempo?" ou "Que tal lembrar da fórmula da área de um quadrado?"
+
+Atenção:
+- NÃO revele a resposta.
+- A dica deve ter no máximo 2 frases.
+- Estilo amigável e como se fosse o próprio chatbot perguntando.
+
+Responda apenas com a dica.
+`;
+
+  try {
+    const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      model: 'deepseek/deepseek-chat-v3-0324:free',
+      messages: [{ role: 'user', content: prompt }]
+    }, {
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost',
+        'X-Title': 'SeuProjetoRoblox'
+      }
+    });
+
+    const dica = completion.data?.choices?.[0]?.message?.content?.trim();
+
+    res.json({ dica });
+
+  } catch (error) {
+    console.error("❌ Erro ao gerar dica:", error.message);
+    res.status(500).json({ erro: "Erro ao gerar dica." });
+  }
+});
+
+// 🔁 Reinicia o jogo (zera perguntas usadas)
+app.post('/reiniciar', (req, res) => {
+  perguntasUsadas = [];
+  perguntas = [];
+  res.json({ mensagem: 'Partida reiniciada. Perguntas liberadas novamente.' });
+});
+
+// 🚀 Inicia o servidor
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Servidor rodando em http://localhost:${port}`);
 });
