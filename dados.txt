@@ -1,5 +1,3 @@
 chave para o bot 
 
-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
-
-  
+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
