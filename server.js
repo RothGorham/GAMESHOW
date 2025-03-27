@@ -1,29 +1,58 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const mongoose = require('mongoose');
+const Pergunta = require('./models/Pergunta');
+
 const app = express();
 const port = 3000;
 
 app.use(cors());
 app.use(express.json());
 
-const perguntas = [
-  { id: 1, pergunta: "Qual a capital do Brasil?", correta: "Brasília" },
-  { id: 2, pergunta: "Quanto é 2+2?", correta: "4" },
-];
+mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/PERGUNTAS?retryWrites=true&w=majority&appName=GAME')
+  .then(() => console.log("✅ Conectado ao MongoDB"))
+  .catch(err => console.error("❌ Erro ao conectar com o MongoDB:", err));
 
-// ✅ SUA API KEY DA OPENROUTER
+// Variável de pergunta atual
+let perguntas = [];
+
+// SUA API KEY
 const OPENROUTER_API_KEY = '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';
 
-app.get('/pergunta', (req, res) => {
-  const random = perguntas[Math.floor(Math.random() * perguntas.length)];
-  res.json(random);
+// 🔄 Sorteia uma pergunta do MongoDB e salva na variável
+app.get('/pergunta', async (req, res) => {
+  try {
+    const todas = await Pergunta.find();
+    if (!todas.length) return res.status(404).json({ erro: 'Sem perguntas no banco.' });
+
+    const sorteada = todas[Math.floor(Math.random() * todas.length)];
+
+    // Atualiza a variável no formato antigo
+    perguntas = [
+      {
+        id: 1,
+        pergunta: sorteada.pergunta,
+        correta: sorteada.correta
+      }
+    ];
+
+    res.json(perguntas[0]);
+  } catch (err) {
+    console.error("❌ Erro ao buscar pergunta:", err.message);
+    res.status(500).json({ erro: "Erro ao buscar pergunta." });
+  }
 });
 
+// ✅ Verifica resposta usando a variável perguntas[0]
 app.post('/resposta', async (req, res) => {
-  const { id, resposta } = req.body;
-  const pergunta = perguntas.find(p => p.id === id);
-  if (!pergunta) return res.status(404).json({ correta: false });
+  const { resposta } = req.body;
+
+  if (!perguntas.length) {
+    return res.status(404).json({ correta: false, erro: "Nenhuma pergunta ativa." });
+  }
+
+  const pergunta = perguntas[0];
 
   const prompt = `
 A resposta correta para a pergunta "${pergunta.pergunta}" é "${pergunta.correta}".
@@ -37,12 +66,7 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
   try {
     const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model: 'deepseek/deepseek-chat-v3-0324:free',
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      messages: [{ role: 'user', content: prompt }]
     }, {
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
@@ -52,22 +76,21 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
       }
     });
 
-    console.log("Resposta completa da OpenRouter:", completion.data); // Debug da resposta
+    const texto = completion.data?.choices?.[0]?.message?.content?.toLowerCase() || '';
+    const acertou = texto.includes("true");
 
-    const choice = completion.data?.choices?.[0];
-    if (!choice || !choice.message?.content) {
-      throw new Error('Resposta malformada da OpenRouter');
+    if (acertou) {
+      perguntas = []; // limpa a pergunta
     }
 
-    const respostaIA = choice.message.content.toLowerCase().includes("true");
-    res.json({ correta: respostaIA });
+    res.json({ correta: acertou });
 
   } catch (error) {
-    console.error("Erro ao consultar OpenRouter:", error.message);
+    console.error("❌ Erro ao consultar IA:", error.message);
     res.status(500).json({ correta: false });
   }
 });
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Servidor rodando na porta ${port}`);
+  console.log(`🚀 Servidor rodando em http://localhost:${port}`);
 });
