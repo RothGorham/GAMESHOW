@@ -1,0 +1,7 @@
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+
+npm install express cors axios
+
+ (Se Necessário)
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
