@@ -13,7 +13,7 @@ const perguntas = [
 ];
 
 // ✅ SUA API KEY DA OPENROUTER
-const OPENROUTER_API_KEY = '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';
+const OPENROUTER_API_KEY = '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';
 
 app.get('/pergunta', (req, res) => {
   const random = perguntas[Math.floor(Math.random() * perguntas.length)];
@@ -36,7 +36,7 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
 
   try {
     const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'deepseek/deepseek-r1',
+      model: 'deepseek/deepseek-chat-v3-0324:free',
       messages: [
         {
           role: 'user',
@@ -47,13 +47,21 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost', // ou o seu domínio
+        'HTTP-Referer': 'http://localhost',
         'X-Title': 'SeuProjetoRoblox'
       }
     });
 
-    const respostaIA = completion.data.choices[0].message.content.toLowerCase().includes("true");
+    console.log("Resposta completa da OpenRouter:", completion.data); // Debug da resposta
+
+    const choice = completion.data?.choices?.[0];
+    if (!choice || !choice.message?.content) {
+      throw new Error('Resposta malformada da OpenRouter');
+    }
+
+    const respostaIA = choice.message.content.toLowerCase().includes("true");
     res.json({ correta: respostaIA });
+
   } catch (error) {
     console.error("Erro ao consultar OpenRouter:", error.message);
     res.status(500).json({ correta: false });
