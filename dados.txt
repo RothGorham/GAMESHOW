@@ -17,3 +17,5 @@ npm install mongoose
 npm install -g pm2
 pm2 start s.js
 (ideia)
+
+pm2 logs ( informacoes)
