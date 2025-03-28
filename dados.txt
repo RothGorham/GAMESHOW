@@ -1,3 +1,10 @@
 chave para o bot 
 
 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
+
+
+nrgok:
+
+npm install ngrok
+
+ngrok config add-authtoken 2utw8SJpXIOwIK4FkOFdf5DQBhy_2EMsoPemy485wYidAuidu
