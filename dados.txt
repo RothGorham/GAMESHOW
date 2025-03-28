@@ -8,3 +8,6 @@ nrgok:
 npm install ngrok
 
 ngrok config add-authtoken 2utw8SJpXIOwIK4FkOFdf5DQBhy_2EMsoPemy485wYidAuidu
+
+
+npm install mongoose
