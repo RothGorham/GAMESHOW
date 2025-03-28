@@ -11,3 +11,9 @@ ngrok config add-authtoken 2utw8SJpXIOwIK4FkOFdf5DQBhy_2EMsoPemy485wYidAuidu
 
 
 npm install mongoose
+
+
+
+npm install -g pm2
+pm2 start s.js
+(ideia)
