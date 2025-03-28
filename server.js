@@ -10,15 +10,35 @@ const port = 3000;
 app.use(cors());
 app.use(express.json());
 
-mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/PERGUNTAS?retryWrites=true&w=majority&appName=GAME')
-  .then(() => console.log("✅ Conectado ao MongoDB"))
-  .catch(err => console.error("❌ Erro ao conectar com o MongoDB:", err));
-
-// Variáveis para controle
+// ✅ Variáveis para controle
 let perguntas = [];
 let perguntasUsadas = [];
 
 const OPENROUTER_API_KEY = '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';
+
+// ✅ Conectar ao MongoDB
+mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/PERGUNTAS?retryWrites=true&w=majority&appName=GAME', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(async () => {
+  console.log("✅ Conectado ao MongoDB com sucesso!");
+
+  // 🔄 Resetar variáveis ao iniciar
+  perguntasUsadas = [];
+  perguntas = [];
+
+  try {
+    const todas = await Pergunta.find();
+    console.log(`📚 Total de perguntas no banco: ${todas.length}`);
+    console.log("🔁 Perguntas usadas resetadas no início do servidor.");
+  } catch (err) {
+    console.error("❌ Erro ao buscar perguntas:", err);
+  }
+})
+.catch(err => {
+  console.error("❌ Erro ao conectar com o MongoDB:", err);
+});
 
 // 🔄 Sorteia uma pergunta que ainda não foi usada
 app.get('/pergunta', async (req, res) => {
@@ -61,7 +81,7 @@ app.post('/resposta', async (req, res) => {
 A resposta correta para a pergunta "${pergunta.pergunta}" é "${pergunta.correta}".
 O jogador respondeu: "${resposta}"
 
-Analise se o jogador quis dizer a resposta correta, mesmo com erros de acentuação, digitação ou pontuação.
+Verifique se a resposta do jogador está correta. Se a resposta contiver mais de 2 palavras, considere um erro. porem se tiver erros de acentuação, digitação ou pontuação.
 
 Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
 `;
@@ -112,7 +132,7 @@ Crie uma dica sutil que ajude o jogador a encontrar a resposta correta. A dica d
 Atenção:
 - NÃO revele a resposta.
 - A dica deve ter no máximo 2 frases.
-- Estilo amigável e como se fosse o próprio chatbot perguntando.
+- Seja Grosso com o jogador.
 
 Responda apenas com a dica.
 `;
@@ -141,9 +161,14 @@ Responda apenas com a dica.
 });
 
 // 🔁 Reinicia o jogo (zera perguntas usadas)
-app.post('/reiniciar', (req, res) => {
+app.post('/reiniciar', async (req, res) => {
   perguntasUsadas = [];
   perguntas = [];
+
+  const todas = await Pergunta.find();
+  console.log("♻️ Perguntas reiniciadas manualmente.");
+  console.log(`📚 Total de perguntas disponíveis após reinício: ${todas.length}`);
+
   res.json({ mensagem: 'Partida reiniciada. Perguntas liberadas novamente.' });
 });
 
