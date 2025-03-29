@@ -24,7 +24,6 @@ mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.n
 .then(async () => {
   console.log("✅ Conectado ao MongoDB com sucesso!");
 
-  // 🔄 Resetar variáveis ao iniciar
   perguntasUsadas = [];
   perguntas = [];
 
@@ -74,7 +73,7 @@ app.post('/resposta', async (req, res) => {
   if (!perguntas.length) {
     return res.status(404).json({ correta: false, erro: "Nenhuma pergunta ativa." });
   }
-
+;
   const pergunta = perguntas[0];
 
   const prompt = `
@@ -104,7 +103,17 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
 
     if (acertou) {
       perguntasUsadas.push(pergunta.id);
-      perguntas = []; // limpa a pergunta ativa
+      perguntas = [];
+
+      const total = await Pergunta.countDocuments();
+
+      if (perguntasUsadas.length >= total) {
+        console.log("⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
+
+        setTimeout(() => {
+          process.exit(0); // Requer PM2 ou gerenciador de processos
+        }, 2000);
+      }
     }
 
     res.json({ correta: acertou });
@@ -170,6 +179,24 @@ app.post('/reiniciar', async (req, res) => {
   console.log(`📚 Total de perguntas disponíveis após reinício: ${todas.length}`);
 
   res.json({ mensagem: 'Partida reiniciada. Perguntas liberadas novamente.' });
+});
+
+// 📊 Rota para saber status das perguntas
+app.get('/status', async (req, res) => {
+  try {
+    const total = await Pergunta.countDocuments();
+    const usadas = perguntasUsadas.length;
+    const restantes = total - usadas;
+
+    res.json({
+      totalPerguntas: total,
+      perguntasUsadas: usadas,
+      perguntasRestantes: restantes
+    });
+  } catch (err) {
+    console.error("❌ Erro ao obter status:", err.message);
+    res.status(500).json({ erro: "Erro ao obter status." });
+  }
 });
 
 // 🚀 Inicia o servidor
