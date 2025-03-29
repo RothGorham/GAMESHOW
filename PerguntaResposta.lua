@@ -4,12 +4,24 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local remote = ReplicatedStorage:WaitForChild("NotificarJogador")
 
-local PERGUNTA_URL = "https://4e58-179-153-34-87.ngrok-free.app/pergunta"
-local RESPOSTA_URL = "https://4e58-179-153-34-87.ngrok-free.app/resposta"
-local DICA_URL = "https://4e58-179-153-34-87.ngrok-free.app/dica"
+local PERGUNTA_URL = "https://1235-179-153-34-87.ngrok-free.app/pergunta"
+local RESPOSTA_URL = "https://1235-179-153-34-87.ngrok-free.app/resposta"
+local DICA_URL = "https://1235-179-153-34-87.ngrok-free.app/dica"
 
 local perguntasAtuais = {}
 local jogadorEmEspera = {}
+local debitos = {}
+
+local function atualizarDinheiro(player, novoValor)
+	player:SetAttribute("Dinheiro", novoValor)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		local dinheiroValor = leaderstats:FindFirstChild("Dinheiro")
+		if dinheiroValor then
+			dinheiroValor.Value = novoValor
+		end
+	end
+end
 
 local function enviarPergunta(player)
 	local success, response = pcall(function()
@@ -27,7 +39,6 @@ local function enviarPergunta(player)
 end
 
 Players.PlayerAdded:Connect(function(player)
-	-- Criação do leaderboard (exibição no topo da tela)
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
 	leaderstats.Parent = player
@@ -37,14 +48,16 @@ Players.PlayerAdded:Connect(function(player)
 	dinheiro.Value = 0
 	dinheiro.Parent = leaderstats
 
-	-- Atributos internos
 	player:SetAttribute("Dinheiro", 0)
 	player:SetAttribute("PerguntasRespondidas", 0)
+	player:SetAttribute("Acertos", 0)
+	player:SetAttribute("Erros", 0)
+	player:SetAttribute("Pulos", 0)
+	debitos[player.UserId] = 0
 
-	-- Reinicia o progresso no backend
 	pcall(function()
 		HttpService:PostAsync(
-			"https://ef63-177-73-181-130.ngrok-free.app/reiniciar",
+			"https://1235-179-153-34-87.ngrok-free.app/reiniciar",
 			HttpService:JSONEncode({ jogadorId = tostring(player.UserId) }),
 			Enum.HttpContentType.ApplicationJson
 		)
@@ -86,6 +99,27 @@ Players.PlayerAdded:Connect(function(player)
 				return
 			end
 
+			if msg:lower() == "pular!" then
+				if jogadorEmEspera[player.UserId] then
+					remote:FireClient(player, "Aguardando", "⏳ Já estamos processando algo, aguarde.")
+					return
+				end
+
+				jogadorEmEspera[player.UserId] = true
+				remote:FireClient(player, "Resultado", "🔁 Pulando a pergunta atual...")
+
+				player:SetAttribute("Pulos", player:GetAttribute("Pulos") + 1)
+				local valorDebito = math.random(0, 10000)
+				local novoSaldo = math.max(0, player:GetAttribute("Dinheiro") - valorDebito)
+				debitos[player.UserId] += valorDebito
+				atualizarDinheiro(player, novoSaldo)
+
+				task.wait(1)
+				enviarPergunta(player)
+				jogadorEmEspera[player.UserId] = false
+				return
+			end
+
 			if jogadorEmEspera[player.UserId] then
 				remote:FireClient(player, "Aguardando", "⏳ Aguarde... analisando sua resposta.")
 				return
@@ -94,10 +128,7 @@ Players.PlayerAdded:Connect(function(player)
 			jogadorEmEspera[player.UserId] = true
 			remote:FireClient(player, "Aguardando", "⏳ ChatGPT está analisando sua resposta...")
 
-			local dados = {
-				id = pergunta.id,
-				resposta = msg
-			}
+			local dados = { id = pergunta.id, resposta = msg }
 
 			local success, respostaServer = pcall(function()
 				return HttpService:PostAsync(
@@ -113,40 +144,46 @@ Players.PlayerAdded:Connect(function(player)
 				local resultado = HttpService:JSONDecode(respostaServer)
 
 				if resultado.correta then
-					-- Ganha dinheiro aleatório
 					local recompensa = math.random(10000, 50000)
-					local dinheiroAtual = player:GetAttribute("Dinheiro")
-					local total = dinheiroAtual + recompensa
-					player:SetAttribute("Dinheiro", total)
+					local total = player:GetAttribute("Dinheiro") + recompensa
+					atualizarDinheiro(player, total)
 
-					-- Atualiza leaderboard
-					local leaderstats = player:FindFirstChild("leaderstats")
-					if leaderstats then
-						local dinheiroValor = leaderstats:FindFirstChild("Dinheiro")
-						if dinheiroValor then
-							dinheiroValor.Value = total
-						end
-					end
-
-					-- Contagem de perguntas
-					local respondidas = player:GetAttribute("PerguntasRespondidas") + 1
-					player:SetAttribute("PerguntasRespondidas", respondidas)
+					player:SetAttribute("PerguntasRespondidas", player:GetAttribute("PerguntasRespondidas") + 1)
+					player:SetAttribute("Acertos", player:GetAttribute("Acertos") + 1)
 
 					remote:FireClient(player, "Resultado", "✅ Resposta correta!")
-
 					task.wait(2)
 
-					-- Verifica se o jogo acabou
+					local respondidas = player:GetAttribute("PerguntasRespondidas")
 					if respondidas >= 50 then
-						if total >= 1000000 then
-							remote:FireClient(player, "Resultado", "🎉 Parabéns! Você terminou com R$ " .. total .. " e venceu o jogo!")
+						remote:FireClient(player, "Resultado", "🎉 Você ganhou R$ " .. total)
+						task.wait(2)
+						remote:FireClient(player, "Resultado", "📋 Estatísticas da partida:")
+						remote:FireClient(player, "Resultado", "✅ Acertos: " .. player:GetAttribute("Acertos"))
+						remote:FireClient(player, "Resultado", "❌ Erros: " .. player:GetAttribute("Erros"))
+						remote:FireClient(player, "Resultado", "🔁 Pulos: " .. player:GetAttribute("Pulos"))
+						task.wait(2)
+						remote:FireClient(player, "Resultado", "🔍 Bom, vou analisar seus débitos...")
+						task.wait(2)
+
+						local totalDebitos = debitos[player.UserId] or 0
+						if totalDebitos > 0 then
+							local saldoFinal = math.max(0, total - totalDebitos)
+							remote:FireClient(player, "Resultado", "💸 Você teve R$ " .. totalDebitos .. " em débitos.")
+							task.wait(2)
+							remote:FireClient(player, "Resultado", "📊 Seu saldo final é: R$ " .. saldoFinal)
 						else
-							remote:FireClient(player, "Resultado", "😢 Fim do jogo! Você terminou com R$ " .. total .. ". Tente novamente!")
+							remote:FireClient(player, "Resultado", "🌟 Realmente, você é um jogador diferenciado.")
 						end
 					else
 						enviarPergunta(player)
 					end
 				else
+					player:SetAttribute("Erros", player:GetAttribute("Erros") + 1)
+					local valorDebitoErro = math.random(0, 10000)
+					local novoSaldo = math.max(0, player:GetAttribute("Dinheiro") - valorDebitoErro)
+					debitos[player.UserId] += valorDebitoErro
+					atualizarDinheiro(player, novoSaldo)
 					remote:FireClient(player, "Resultado", "❌ Resposta incorreta!")
 					task.wait(2)
 					remote:FireClient(player, "Pergunta", pergunta.pergunta)
