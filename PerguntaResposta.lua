@@ -2,11 +2,34 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local remote = ReplicatedStorage:WaitForChild("NotificarJogador")
+--  comunicação cliente-servidor
+local remote = Instance.new("RemoteEvent")
+remote.Name = "NotificarJogador"
+remote.Parent = ReplicatedStorage
 
-local PERGUNTA_URL = "https://1235-179-153-34-87.ngrok-free.app/pergunta"
-local RESPOSTA_URL = "https://1235-179-153-34-87.ngrok-free.app/resposta"
-local DICA_URL = "https://1235-179-153-34-87.ngrok-free.app/dica"
+-- Parte sons no ReplicatedStorage
+local function criarSons()
+	-- Som de mensagem
+	local somMensagem = Instance.new("Sound")
+	somMensagem.Name = "SomMensagem"
+	somMensagem.SoundId = "rbxassetid://130969907014415" --  IDsom
+	somMensagem.Volume = 0.5
+	somMensagem.Parent = ReplicatedStorage
+
+	-- Som de erro
+	local somErro = Instance.new("Sound")
+	somErro.Name = "SomErro"
+	somErro.SoundId = "rbxassetid://124105429067328" -- IDsom
+	somErro.Volume = 0.5
+	somErro.Parent = ReplicatedStorage
+end
+
+criarSons()
+
+-- Toda vez alterar isso no ngrok se nao roda!!
+local PERGUNTA_URL = "https://5172-179-153-34-87.ngrok-free.app/pergunta"
+local RESPOSTA_URL = "https://5172-179-153-34-87.ngrok-free.app/resposta"
+local DICA_URL = "https://5172-179-153-34-87.ngrok-free.app/dica"
 
 local perguntasAtuais = {}
 local jogadorEmEspera = {}
@@ -32,9 +55,13 @@ local function enviarPergunta(player)
 		local pergunta = HttpService:JSONDecode(response)
 		perguntasAtuais[player.UserId] = pergunta
 		remote:FireClient(player, "Pergunta", pergunta.pergunta)
+		-- Notificar o cliente para tocar o som de mensagem
+		player:SetAttribute("MensagemRecebida", "valorX")
 	else
 		warn("Erro ao buscar pergunta:", response)
 		remote:FireClient(player, "Resultado", "❌ Erro ao buscar pergunta.")
+		-- Notificar o cliente para tocar o som de erro
+		player:SetAttribute("MensagemRecebida", "erro")
 	end
 end
 
@@ -55,14 +82,19 @@ Players.PlayerAdded:Connect(function(player)
 	player:SetAttribute("Pulos", 0)
 	debitos[player.UserId] = 0
 
+	-- Inicializar o atributo para o sistema de sons
+	player:SetAttribute("MensagemRecebida", "")
+
 	pcall(function()
 		HttpService:PostAsync(
-			"https://1235-179-153-34-87.ngrok-free.app/reiniciar",
+			"https://5172-179-153-34-87.ngrok-free.app/reiniciar",
 			HttpService:JSONEncode({ jogadorId = tostring(player.UserId) }),
 			Enum.HttpContentType.ApplicationJson
 		)
 	end)
 
+	-- Enviar pergunta após pequeno delay para garantir que o cliente está pronto
+	task.wait(1)
 	enviarPergunta(player)
 
 	if not player:GetAttribute("ConectadoAoChat") then
@@ -90,9 +122,11 @@ Players.PlayerAdded:Connect(function(player)
 				if success then
 					local dica = HttpService:JSONDecode(respostaDica)
 					remote:FireClient(player, "Resultado", "💬 Dica: " .. dica.dica)
+					player:SetAttribute("MensagemRecebida", "valorX")
 				else
 					warn("Erro ao obter dica:", respostaDica)
 					remote:FireClient(player, "Resultado", "❌ Erro ao gerar dica.")
+					player:SetAttribute("MensagemRecebida", "erro")
 				end
 
 				jogadorEmEspera[player.UserId] = false
@@ -152,10 +186,11 @@ Players.PlayerAdded:Connect(function(player)
 					player:SetAttribute("Acertos", player:GetAttribute("Acertos") + 1)
 
 					remote:FireClient(player, "Resultado", "✅ Resposta correta!")
+					player:SetAttribute("MensagemRecebida", "valorX")
 					task.wait(2)
 
 					local respondidas = player:GetAttribute("PerguntasRespondidas")
-					if respondidas >= 50 then
+					if respondidas >= 2 then
 						remote:FireClient(player, "Resultado", "🎉 Você ganhou R$ " .. total)
 						task.wait(2)
 						remote:FireClient(player, "Resultado", "📋 Estatísticas da partida:")
@@ -180,17 +215,19 @@ Players.PlayerAdded:Connect(function(player)
 					end
 				else
 					player:SetAttribute("Erros", player:GetAttribute("Erros") + 1)
-					local valorDebitoErro = math.random(0, 10000)
+					local valorDebitoErro = math.random(20000, 100000)
 					local novoSaldo = math.max(0, player:GetAttribute("Dinheiro") - valorDebitoErro)
 					debitos[player.UserId] += valorDebitoErro
 					atualizarDinheiro(player, novoSaldo)
 					remote:FireClient(player, "Resultado", "❌ Resposta incorreta!")
+					player:SetAttribute("MensagemRecebida", "erro")
 					task.wait(2)
 					remote:FireClient(player, "Pergunta", pergunta.pergunta)
 				end
 			else
 				warn("Erro ao consultar IA:", respostaServer)
 				remote:FireClient(player, "Resultado", "❌ Erro ao verificar resposta.")
+				player:SetAttribute("MensagemRecebida", "erro")
 			end
 
 			jogadorEmEspera[player.UserId] = false
