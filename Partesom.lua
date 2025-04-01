@@ -11,8 +11,7 @@ local function iniciarGUI()
 	--  sons do ReplicatedStorage
 	local somMensagem = ReplicatedStorage:WaitForChild("SomMensagem"):Clone()
 	local somErro = ReplicatedStorage:WaitForChild("SomErro"):Clone()
-	local somAcerto = ReplicatedStorage:WaitForChild("somAcerto"):Clone() -- <-- Adicionado aqui
-
+	local somAcerto = ReplicatedStorage:WaitForChild("somAcerto"):Clone() 
 	somMensagem.Parent = soundFolder
 	somErro.Parent = soundFolder
 	somAcerto.Parent = soundFolder 
