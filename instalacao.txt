@@ -9,3 +9,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 SENHA SERVIDOR
 
 yZ*FUh1w3R?%S0=0zLdR8lZhT5ZDuJKT
+
+
+
+npm install telegraf
