@@ -32,9 +32,9 @@ end
 criarSons()
 
 -- sem isso nao roda preciso do ngrok ~sempre lembrar~
-local PERGUNTA_URL = "https://efc0-179-153-34-87.ngrok-free.app/pergunta"
-local RESPOSTA_URL = "https://efc0-179-153-34-87.ngrok-free.app/resposta"
-local DICA_URL = "https://efc0-179-153-34-87.ngrok-free.app/dica"
+local PERGUNTA_URL = "https://1edb-179-153-34-87.ngrok-free.app/pergunta"
+local RESPOSTA_URL = "https://1edb-179-153-34-87.ngrok-free.app/resposta"
+local DICA_URL = "https://1edb-179-153-34-87.ngrok-free.app/dica"
 
 -- Tabelas
 local perguntasAtuais = {}
@@ -43,8 +43,9 @@ local debitos = {}
 local debitosAjuda = {}
 local debitosErro = {}
 local debitosPulo = {}
-local respostasTemporarias = {} 
-local jogadorEsperandoConfirmacao = {} 
+local respostasTemporarias = {} -- Armazena respostas aguardando confirmação
+local jogadorEsperandoConfirmacao = {} -- Jogadores esperando confirmação
+local jogadorTerminouIntroducao = {} -- Controle de jogadores que terminaram a introdução
 
 -- Atualizar dinheiro
 local function atualizarDinheiro(player, novoValor)
@@ -58,8 +59,47 @@ local function atualizarDinheiro(player, novoValor)
 	end
 end
 
+-- Função para exibir as estatísticas finais de forma organizada
+local function exibirEstatisticasFinais(player, acertos, erros, ajudas, pulos, totalGanho, gastoErro, gastoAjuda, gastoPulo, saldoFinal)
+	-- Início do relatório
+	remote:FireClient(player, "Resultado", "🏁 FIM DA PARTIDA! 🏁")
+	task.wait(2)
+
+	-- Resumo de desempenho
+	local resumoDesempenho = string.format(
+		"📊 RESUMO FINAL 📊\n" ..
+			"✅ Acertos: %d | ❌ Erros: %d\n" ..
+			"💡 Dicas: %d | 🔁 Pulos: %d",
+		acertos, erros, ajudas, pulos
+	)
+	remote:FireClient(player, "Resultado", resumoDesempenho)
+	task.wait(3)
+
+	-- Resumo financeiro
+	local resumoFinanceiro = string.format(
+		"💰 BALANÇO FINANCEIRO 💰\n" ..
+			"➕ Total ganho: R$ %d\n" ..
+			"➖ Total gasto: R$ %d\n" ..
+			"   ├─ Erros: R$ %d\n" ..
+			"   ├─ Dicas: R$ %d\n" ..
+			"   └─ Pulos: R$ %d",
+		totalGanho, (gastoErro + gastoAjuda + gastoPulo), gastoErro, gastoAjuda, gastoPulo
+	)
+	remote:FireClient(player, "Resultado", resumoFinanceiro)
+	task.wait(3)
+
+	-- Resultado final
+	local resultadoFinal = string.format("💵 SALDO FINAL: R$ %d 💵", saldoFinal)
+	remote:FireClient(player, "Resultado", resultadoFinal)
+end
+
 -- pergunta do servidor
 local function enviarPergunta(player)
+	-- Verificar se o jogador terminou a introdução antes de enviar a pergunta
+	if not jogadorTerminouIntroducao[player.UserId] then
+		return
+	end
+
 	local success, response = pcall(function()
 		return HttpService:GetAsync(PERGUNTA_URL)
 	end)
@@ -80,6 +120,11 @@ end
 
 -- Função para verificar resposta com o servidor
 local function verificarResposta(player, mensagem)
+	-- Verificar se o jogador terminou a introdução
+	if not jogadorTerminouIntroducao[player.UserId] then
+		return
+	end
+
 	if jogadorEmEspera[player.UserId] then
 		remote:FireClient(player, "Resultado", "⏳ Já estamos processando algo, aguarde.")
 		return
@@ -128,32 +173,16 @@ local function verificarResposta(player, mensagem)
 
 				local saldoFinal = math.max(0, totalGanho - totalGasto)
 
-				remote:FireClient(player, "Resultado", "🏁 Fim da partida!")
-				task.wait(2)
-				remote:FireClient(player, "Resultado", "########################")
-				remote:FireClient(player, "Resultado", "📊 Estatísticas:")
-				remote:FireClient(player, "Resultado", "✅ Perguntas corretas: " .. acertos)
-				remote:FireClient(player, "Resultado", "❌ Total de erros: " .. erros)
-				remote:FireClient(player, "Resultado", "💡 Total de dicas usadas: " .. ajudas)
-				remote:FireClient(player, "Resultado", "🔁 Total de pulos: " .. pulos)
-				remote:FireClient(player, "Resultado", "------------------------")
-				remote:FireClient(player, "Resultado", "💰 Total ganho: R$ " .. totalGanho)
-				remote:FireClient(player, "Resultado", "💸 Total gasto:")
-				remote:FireClient(player, "Resultado", " ❌ Erros: R$ " .. gastoErro)
-				remote:FireClient(player, "Resultado", " 🆘 Ajuda: R$ " .. gastoAjuda)
-				remote:FireClient(player, "Resultado", " 🔁 Pulos: R$ " .. gastoPulo)
-				remote:FireClient(player, "Resultado", "########################")
-				task.wait(2)
-				remote:FireClient(player, "Resultado", "💵 Saldo final real: R$ " .. saldoFinal)
+				-- Exibir estatísticas de forma organizada usando a nova função
+				exibirEstatisticasFinais(player, acertos, erros, ajudas, pulos, totalGanho, gastoErro, gastoAjuda, gastoPulo, saldoFinal)
 			else
 				enviarPergunta(player)
 			end
-
 		else
 			player:SetAttribute("Erros", player:GetAttribute("Erros") + 1)
 			local valorDebitoErro = math.random(20000, 100000)
 			local novoSaldo = math.max(0, player:GetAttribute("Dinheiro") - valorDebitoErro)
-			debitos[player.UserId] += valorDebitoErro
+			debitos[player.UserId] = (debitos[player.UserId] or 0) + valorDebitoErro
 			debitosErro[player.UserId] = (debitosErro[player.UserId] or 0) + valorDebitoErro
 			atualizarDinheiro(player, novoSaldo)
 
@@ -173,6 +202,138 @@ local function verificarResposta(player, mensagem)
 	end
 
 	jogadorEmEspera[player.UserId] = false
+end
+
+-- Criando script de introdução para "Ilha da Última Resposta"
+local function criarIntroducaoParaJogador(player)
+	-- Criar GUI para mensagens de introdução
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "IntroducaoGui"
+	screenGui.ResetOnSpawn = false
+	screenGui.Parent = player:WaitForChild("PlayerGui")
+
+	-- Fundo preto para melhor visualização
+	local fundoPreto = Instance.new("Frame")
+	fundoPreto.Name = "FundoPreto"
+	fundoPreto.Size = UDim2.new(1, 0, 1, 0)
+	fundoPreto.BackgroundColor3 = Color3.new(0, 0, 0)
+	fundoPreto.BackgroundTransparency = 0
+	fundoPreto.ZIndex = 5
+	fundoPreto.Parent = screenGui
+
+	-- Frame principal para as mensagens
+	local mainFrame = Instance.new("Frame")
+	mainFrame.Name = "MainFrame"
+	mainFrame.Size = UDim2.new(0.8, 0, 0.4, 0)
+	mainFrame.Position = UDim2.new(0.1, 0, 0.3, 0)
+	mainFrame.BackgroundTransparency = 1
+	mainFrame.ZIndex = 10
+	mainFrame.Parent = screenGui
+
+	-- Borda para o texto (visual mais profissional)
+	local bordaTexto = Instance.new("Frame")
+	bordaTexto.Name = "BordaTexto"
+	bordaTexto.Size = UDim2.new(1, 0, 1, 0)
+	bordaTexto.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+	bordaTexto.BackgroundTransparency = 0.7
+	bordaTexto.BorderSizePixel = 2
+	bordaTexto.BorderColor3 = Color3.new(0.8, 0, 0) -- Borda vermelha para combinar com o tema
+	bordaTexto.ZIndex = 6
+	bordaTexto.Parent = mainFrame
+
+	-- Texto para exibir as mensagens
+	local mensagemTexto = Instance.new("TextLabel")
+	mensagemTexto.Name = "MensagemTexto"
+	mensagemTexto.Size = UDim2.new(0.9, 0, 0.9, 0)
+	mensagemTexto.Position = UDim2.new(0.05, 0, 0.05, 0)
+	mensagemTexto.BackgroundTransparency = 1
+	mensagemTexto.Font = Enum.Font.SourceSansBold
+	mensagemTexto.TextColor3 = Color3.new(1, 1, 1)
+	mensagemTexto.TextSize = 28
+	mensagemTexto.TextWrapped = true
+	mensagemTexto.RichText = true
+	mensagemTexto.TextStrokeTransparency = 0.5
+	mensagemTexto.TextStrokeColor3 = Color3.new(0, 0, 0)
+	mensagemTexto.ZIndex = 11
+	mensagemTexto.Parent = mainFrame
+
+	-- Som de introdução
+	local somIntroducao = Instance.new("Sound")
+	somIntroducao.Name = "SomIntroducao"
+	somIntroducao.SoundId = "rbxassetid://9125181580" -- Substitua pelo ID de um som dramático
+	somIntroducao.Volume = 0.8
+	somIntroducao.Parent = screenGui
+	somIntroducao:Play()
+
+	local mensagens = {
+		{texto = "🩸💀 SEJA BEM-VINDO À ILHA DA ÚLTIMA RESPOSTA.\n", tempo = 4},
+		
+		{texto = "Este jogo foi inspirado no Show do Milhão, mas com alguns detalhes… levemente aprimorados", tempo = 8},
+
+		{texto = "💰 Quer ganhar dinheiro?\nAperte a tecla \";\" para abrir o chat e responder às perguntas.", tempo = 8},
+
+		{texto = "🎯 REGRAS SÃO SIMPLES:\nResponda certo. Ganhe grana.\nErrou? Vai pagar por isso.", tempo = 5},
+
+		{texto = "⚠️ PRESTE ATENÇÃO:\nCada erro, Cada dica, Cada pergunta pulada…\nDEBITA o seu saldo. \nSem choro. 😢", tempo = 8},
+
+		{texto = "🆘 QUER AJUDA?\nDigite ajuda!\nQUER PULAR?\n Digite pula!\nMas tudo aqui tem preço, campeão.", tempo = 8},
+
+		{texto = "⏳ O JOGO COMEÇA EM 8 SEGUNDOS…\n\n💀 BOA SORTE. VOCÊ VAI PRECISAR.\n", tempo = 8}
+	}
+
+
+
+	-- Função para mostrar efeito de digitação
+	local function mostrarComEfeitoDigitacao(texto)
+		local textoCompleto = texto
+		mensagemTexto.Text = ""
+
+		for i = 1, #textoCompleto do
+			mensagemTexto.Text = string.sub(textoCompleto, 1, i)
+			wait(0.03) -- Velocidade de digitação um pouco mais lenta para dramaticidade
+		end
+	end
+
+	-- Exibir cada mensagem na sequência
+	for i, mensagem in ipairs(mensagens) do
+		-- Efeito sonoro para nova mensagem
+		local somMensagem = Instance.new("Sound")
+		somMensagem.SoundId = "rbxassetid://255881176" -- Som de notificação
+		somMensagem.Volume = 0.3
+		somMensagem.Parent = screenGui
+		somMensagem:Play()
+		game:GetService("Debris"):AddItem(somMensagem, 2)
+
+		-- Mostrar mensagem com efeito
+		mostrarComEfeitoDigitacao(mensagem.texto)
+
+		-- Esperar o tempo definido antes da próxima mensagem
+		wait(mensagem.tempo)
+	end
+
+	-- Som de início
+	local somInicio = Instance.new("Sound")
+	somInicio.SoundId = "rbxassetid://1584273566" -- Som de início
+	somInicio.Volume = 1
+	somInicio.Parent = screenGui
+	somInicio:Play()
+
+	-- Efeito de fade-out gradual do fundo preto
+	for i = 1, 20 do
+		fundoPreto.BackgroundTransparency = i/20
+		wait(0.1)
+	end
+
+	-- Remover GUI após a sequência
+	wait(1)
+	screenGui:Destroy()
+
+	-- Marcar que o jogador concluiu a introdução e pode começar o jogo
+	jogadorTerminouIntroducao[player.UserId] = true
+
+	-- Agora sim, iniciar o jogo enviando a primeira pergunta
+	task.wait(1)
+	enviarPergunta(player)
 end
 
 -- Quando jogador entra
@@ -198,19 +359,26 @@ Players.PlayerAdded:Connect(function(player)
 	debitosAjuda[player.UserId] = 0
 	debitosPulo[player.UserId] = 0
 	jogadorEsperandoConfirmacao[player.UserId] = false
+	jogadorTerminouIntroducao[player.UserId] = false -- Inicializa como falso
 
-	HttpService:PostAsync("https://efc0-179-153-34-87.ngrok-free.app/reiniciar",
+	HttpService:PostAsync("https://1edb-179-153-34-87.ngrok-free.app/reiniciar",
 		HttpService:JSONEncode({ jogadorId = tostring(player.UserId) }),
 		Enum.HttpContentType.ApplicationJson
 	)
 
-	task.wait(1)
-	enviarPergunta(player)
+	-- Iniciar sequência de introdução
+	task.wait(3) -- Tempo para o jogador carregar completamente
+	criarIntroducaoParaJogador(player)
 
 	if not player:GetAttribute("ConectadoAoChat") then
 		player:SetAttribute("ConectadoAoChat", true)
 
 		player.Chatted:Connect(function(msg)
+			-- Ignorar mensagens de chat se a introdução não terminou
+			if not jogadorTerminouIntroducao[player.UserId] then
+				return
+			end
+
 			local pergunta = perguntasAtuais[player.UserId]
 			if not pergunta then return end
 
@@ -233,7 +401,6 @@ Players.PlayerAdded:Connect(function(player)
 				end)
 
 				if success then
-
 					local somOriginal = ReplicatedStorage:FindFirstChild("SomMensagem")
 					if somOriginal then
 						local somClone = somOriginal:Clone()
@@ -250,7 +417,7 @@ Players.PlayerAdded:Connect(function(player)
 
 					local valorDebitoAjuda = math.random(5000, 20000)
 					local novoSaldo = math.max(0, player:GetAttribute("Dinheiro") - valorDebitoAjuda)
-					debitos[player.UserId] += valorDebitoAjuda
+					debitos[player.UserId] = (debitos[player.UserId] or 0) + valorDebitoAjuda
 					debitosAjuda[player.UserId] = (debitosAjuda[player.UserId] or 0) + valorDebitoAjuda
 					atualizarDinheiro(player, novoSaldo)
 				else
@@ -279,7 +446,7 @@ Players.PlayerAdded:Connect(function(player)
 				player:SetAttribute("Pulos", player:GetAttribute("Pulos") + 1)
 				local valorDebito = math.random(0, 10000)
 				local novoSaldo = math.max(0, player:GetAttribute("Dinheiro") - valorDebito)
-				debitos[player.UserId] += valorDebito
+				debitos[player.UserId] = (debitos[player.UserId] or 0) + valorDebito
 				debitosPulo[player.UserId] = (debitosPulo[player.UserId] or 0) + valorDebito
 				atualizarDinheiro(player, novoSaldo)
 
@@ -289,7 +456,7 @@ Players.PlayerAdded:Connect(function(player)
 				return
 			end
 
-			-- parte solicitada pelo proffessor da escola 
+			-- Processar confirmações
 			if jogadorEsperandoConfirmacao[player.UserId] then
 				if msg:lower() == "sim!" then
 					jogadorEsperandoConfirmacao[player.UserId] = false
@@ -320,9 +487,14 @@ Players.PlayerAdded:Connect(function(player)
 	end
 end)
 
--- dependeno do que o usuario responder
+-- Configuração do cliente (remoto)
 remote.OnServerEvent:Connect(function(player, tipo, conteudo)
 	if tipo == "ConfirmarResposta" then
+		-- Verificar se o jogador terminou a introdução
+		if not jogadorTerminouIntroducao[player.UserId] then
+			return
+		end
+
 		if conteudo:lower() == "sim" then
 			verificarResposta(player, respostasTemporarias[player.UserId])
 		else
@@ -332,6 +504,6 @@ remote.OnServerEvent:Connect(function(player, tipo, conteudo)
 				task.wait(1)
 				remote:FireClient(player, "Pergunta", pergunta.pergunta)
 			end
-		end
+		end 
 	end
 end)
