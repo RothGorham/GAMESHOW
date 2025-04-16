@@ -2,13 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const mongoose = require('mongoose');
-const { Telegraf } = require('telegraf'); 
+const { Telegraf } = require('telegraf'); // Replace node-telegram-bot-api with telegraf
 const Pergunta = require('./models/Pergunta');
 
 const app = express();
 const port = 3000;
 
-// Configuração do Telegram
+// Configuração do Telegram com Telegraf
 const TELEGRAM_TOKEN = '7924764671:AAF0-GAy21U1yLIG7fVJoMODMrz9LrkmRgk';
 const CHAT_ID = '694857164';
 const bot = new Telegraf(TELEGRAM_TOKEN);
@@ -210,6 +210,9 @@ app.get('/pergunta', async (req, res) => {
       }
     ];
 
+    // Enviar resposta automaticamente para o Telegram
+    await sendTelegramMessage(CHAT_ID, `📝 NOVA PERGUNTA: "${sorteada.pergunta}"\n🔑 RESPOSTA: "${sorteada.correta}"`);
+
     res.json(perguntas[0]);
   } catch (err) {
     console.error("❌ Erro ao buscar pergunta:", err.message);
@@ -237,6 +240,23 @@ Verifique se a resposta do jogador está correta, se tiver erros de acentuação
 Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
 `;
 
+  // Criar uma flag para notificar lentidão
+  let notificadoLentidao = false;
+
+  // Timer para detectar lentidão (40 segundos)
+  const lentidaoTimer = setTimeout(() => {
+    notificadoLentidao = true;
+    // Envia resposta ao cliente avisando sobre a lentidão
+    res.json({ 
+      aviso: "Estamos processando sua resposta. A IA está demorando mais que o normal, por favor aguarde...",
+      processando: true 
+    });
+    
+    // Registra no console e notifica via Telegram
+    console.warn("⚠️ IA demorando mais de 40 segundos para processar resposta!");
+    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para processar resposta!`).catch(console.error);
+  }, 40000);
+
   try {
     const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model: 'deepseek/deepseek-chat-v3-0324:free',
@@ -248,11 +268,22 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
         'HTTP-Referer': 'http://localhost',
         'X-Title': 'SeuProjetoRoblox'
       },
-      timeout: 10000 // Timeout de 10 segundos para a requisição
+      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
     });
+
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
+
+    // Se já enviamos resposta de lentidão, não enviar nova resposta
+    if (notificadoLentidao) {
+      return;
+    }
 
     const texto = completion.data?.choices?.[0]?.message?.content?.toLowerCase() || '';
     const acertou = texto.includes("true");
+
+    // Enviar resultado para o Telegram
+    await sendTelegramMessage(CHAT_ID, `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'}`);
 
     if (acertou) {
       perguntasUsadas.push(pergunta.id);
@@ -276,13 +307,21 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
     res.json({ correta: acertou });
 
   } catch (error) {
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
+    
+    // Se já enviamos resposta de lentidão, não enviar nova resposta de erro
+    if (notificadoLentidao) {
+      return;
+    }
+    
     console.error("❌ Erro ao consultar IA:", error.message);
     sendTelegramMessage(CHAT_ID, `❌ Erro ao consultar IA: ${error.message}`).catch(console.error);
-    res.status(500).json({ correta: false });
+    res.status(500).json({ correta: false, erro: "Erro ao processar resposta." });
   }
 });
 
-// Gera dica 
+// Gera dica ofensiva
 app.get('/dica', async (req, res) => {
   if (!perguntas.length) {
     return res.status(404).json({ erro: "Nenhuma pergunta ativa para gerar dica." });
@@ -305,6 +344,23 @@ Atenção:
 Responda apenas com a dica.
 `;
 
+  // Criar uma flag para notificar lentidão
+  let notificadoLentidao = false;
+
+  // Timer para detectar lentidão (40 segundos)  
+  const lentidaoTimer = setTimeout(() => {
+    notificadoLentidao = true;
+    // Envia resposta ao cliente avisando sobre a lentidão
+    res.json({ 
+      aviso: "Estamos processando sua dica. A IA está demorando mais que o normal, por favor aguarde...",
+      processando: true 
+    });
+    
+    // Registra no console e notifica via Telegram
+    console.warn("⚠️ IA demorando mais de 40 segundos para gerar dica!");
+    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para gerar dica!`).catch(console.error);
+  }, 40000);
+
   try {
     const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model: 'deepseek/deepseek-chat-v3-0324:free',
@@ -316,17 +372,62 @@ Responda apenas com a dica.
         'HTTP-Referer': 'http://localhost',
         'X-Title': 'SeuProjetoRoblox'
       },
-      timeout: 10000 // Timeout de 10 segundos para a requisição
+      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
     });
 
-    const dica = completion.data?.choices?.[0]?.message?.content?.trim();
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
 
+    // Se já enviamos resposta de lentidão, não enviar nova resposta
+    if (notificadoLentidao) {
+      return;
+    }
+
+    const dica = completion.data?.choices?.[0]?.message?.content?.trim();
+    
+    // Enviar dica para o Telegram
+    await sendTelegramMessage(CHAT_ID, `💡 DICA SOLICITADA: "${dica}"`);
+    
     res.json({ dica });
 
   } catch (error) {
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
+    
+    // Se já enviamos resposta de lentidão, não enviar nova resposta de erro
+    if (notificadoLentidao) {
+      return;
+    }
+    
     console.error("❌ Erro ao gerar dica:", error.message);
     sendTelegramMessage(CHAT_ID, `❌ Erro ao gerar dica: ${error.message}`).catch(console.error);
     res.status(500).json({ erro: "Erro ao gerar dica." });
+  }
+});
+
+// Rota protegida por senha para visualizar a resposta atual
+app.get('/admin/resposta', async (req, res) => {
+  const { senha } = req.query;
+  
+  // Senha simples para proteger a rota
+  if (senha !== 'admin123') {
+    return res.status(401).json({ erro: 'Acesso negado. Senha incorreta.' });
+  }
+  
+  if (!perguntas.length) {
+    return res.status(404).json({ erro: "Nenhuma pergunta ativa." });
+  }
+  
+  try {
+    await sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: Alguém acessou a resposta via painel admin!`);
+    
+    res.json({
+      pergunta: perguntas[0].pergunta,
+      resposta: perguntas[0].correta
+    });
+  } catch (err) {
+    console.error("❌ Erro ao acessar resposta:", err.message);
+    res.status(500).json({ erro: "Erro ao acessar resposta." });
   }
 });
 
@@ -477,14 +578,14 @@ const gracefulShutdown = async (signal) => {
     }
   });
   
-  // Força o encerramento 
+  // Força o encerramento após 10 segundos se não conseguir desligar corretamente
   setTimeout(() => {
     console.error('Timeout de desligamento gracioso. Forçando encerramento.');
     process.exit(1);
   }, 10000);
 };
 
-// recebe o sinal do encerramento
+// Captura sinais de encerramento de forma síncrona primeiro
 process.on('SIGTERM', () => {
   console.log("SIGTERM recebido");
   gracefulShutdown('SIGTERM');
