@@ -317,23 +317,6 @@ local function criarIntroducaoParaJogador(player)
 		{texto = "⏳ O JOGO COMEÇA EM 5 SEGUNDOS...\n\n💀 BOA SORTE. VOCÊ VAI PRECISAR.", cor = Color3.new(1, 0, 0)}
 	}
 
-	-- Efeito de piscar para o botão continuar
-	local function piscarBotao()
-		while botaoContinuar.Parent do
-			for i = 0, 1, 0.1 do
-				if not botaoContinuar.Parent then break end
-				botaoContinuar.BackgroundColor3 = Color3.new(0.7 * (1-i), 0, 0)
-				wait(0.05)
-			end
-			for i = 1, 0, -0.1 do
-				if not botaoContinuar.Parent then break end
-				botaoContinuar.BackgroundColor3 = Color3.new(0.7 * (1-i), 0, 0)
-				wait(0.05)
-			end
-			wait(0.2)
-		end
-	end
-
 	-- Função para mostrar efeito de digitação
 	local function mostrarComEfeitoDigitacao(texto, cor)
 		mensagemTexto.Text = ""
@@ -361,7 +344,82 @@ local function criarIntroducaoParaJogador(player)
 				game:GetService("Debris"):AddItem(somDigitacao, 1)
 			end
 
-			wait(0.02)
+			task.wait(0.02)
+		end
+	end
+
+	-- Texto de instrução para pressionar Enter
+	local instrucaoTexto = Instance.new("TextLabel")
+	instrucaoTexto.Name = "InstrucaoTexto"
+	instrucaoTexto.Size = UDim2.new(0.5, 0, 0.1, 0)
+	instrucaoTexto.Position = UDim2.new(0.25, 0, 0.85, 0)
+	instrucaoTexto.BackgroundTransparency = 1
+	instrucaoTexto.Font = Enum.Font.GothamBold
+	instrucaoTexto.TextColor3 = Color3.new(1, 1, 1)
+	instrucaoTexto.TextSize = 24
+	instrucaoTexto.Text = "Pressione ENTER para continuar..."
+	instrucaoTexto.TextStrokeTransparency = 0.5
+	instrucaoTexto.TextStrokeColor3 = Color3.new(0, 0, 0)
+	instrucaoTexto.ZIndex = 11
+	instrucaoTexto.Parent = mainFrame
+
+	-- Função para esperar o Enter
+	local function esperarEnter()
+		local UserInputService = game:GetService("UserInputService")
+		local pressionou = false
+
+		-- Criar uma nova conexão
+		local conexao
+		conexao = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+			if not gameProcessed and input.KeyCode == Enum.KeyCode.Return then
+				pressionou = true
+
+				-- Som de confirmação
+				local somConfirmacao = Instance.new("Sound")
+				somConfirmacao.SoundId = "rbxassetid://6042052809"
+				somConfirmacao.Volume = 0.5
+				somConfirmacao.Parent = screenGui
+				somConfirmacao:Play()
+				game:GetService("Debris"):AddItem(somConfirmacao, 1)
+
+				-- Desconectar o evento após uso
+				if conexao then
+					conexao:Disconnect()
+					conexao = nil
+				end
+			end
+		end)
+
+		-- Efeito de piscar na instrução
+		local piscando = true
+		spawn(function()
+			while piscando and instrucaoTexto and instrucaoTexto.Parent do
+				for i = 0, 1, 0.1 do
+					if not piscando or not instrucaoTexto or not instrucaoTexto.Parent then break end
+					instrucaoTexto.TextTransparency = i
+					task.wait(0.05)
+				end
+				for i = 1, 0, -0.1 do
+					if not piscando or not instrucaoTexto or not instrucaoTexto.Parent then break end
+					instrucaoTexto.TextTransparency = i
+					task.wait(0.05)
+				end
+				task.wait(0.2)
+			end
+		end)
+
+		-- Aguardar até que Enter seja pressionado
+		while not pressionou do
+			task.wait()
+		end
+
+		-- Parar o efeito de piscar
+		piscando = false
+
+		-- Limpar a conexão se ainda existir
+		if conexao then
+			conexao:Disconnect()
+			conexao = nil
 		end
 	end
 
@@ -369,35 +427,20 @@ local function criarIntroducaoParaJogador(player)
 	for i, mensagem in ipairs(mensagens) do
 		mostrarComEfeitoDigitacao(mensagem.texto, mensagem.cor)
 
-		-- Se não for a última mensagem, esperar pelo clique
+		-- Se não for a última mensagem, esperar pelo Enter
 		if i < #mensagens then
-			botaoContinuar.Visible = true
+			esperarEnter()
 
-			-- Iniciar efeito de piscar
-			local thread = coroutine.create(piscarBotao)
-			coroutine.resume(thread)
-
-			-- Esperar pelo clique
-			local clicked = false
-			botaoContinuar.MouseButton1Click:Connect(function()
-				clicked = true
-				local somClick = Instance.new("Sound")
-				somClick.SoundId = "rbxassetid://6042052809"
-				somClick.Volume = 0.5
-				somClick.Parent = screenGui
-				somClick:Play()
-				game:GetService("Debris"):AddItem(somClick, 1)
-			end)
-
-			-- Aguardar pelo clique
-			while not clicked and botaoContinuar.Parent do
-				wait(0.1)
+			-- Efeito de fade para a próxima mensagem
+			for alpha = 0, 1, 0.1 do
+				mensagemTexto.TextTransparency = alpha
+				instrucaoTexto.TextTransparency = alpha
+				task.wait(0.05)
 			end
-
-			botaoContinuar.Visible = false
 		else
-			-- Última mensagem, apenas esperar alguns segundos
-			wait(5)
+			-- Última mensagem, esperar 5 segundos
+			instrucaoTexto.Visible = false
+			task.wait(5)
 		end
 	end
 
@@ -413,11 +456,11 @@ local function criarIntroducaoParaJogador(player)
 		mainFrame.BackgroundTransparency = 0.2 + (i * 0.08)
 		fundoPreto.BackgroundTransparency = i/10
 		mensagemTexto.TextTransparency = i/10
-		wait(0.1)
+		task.wait(0.1)
 	end
 
 	-- Remover GUI após a sequência
-	wait(1)
+	task.wait(1)
 	screenGui:Destroy()
 
 	-- Restaurar controles do jogador
