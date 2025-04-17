@@ -127,10 +127,12 @@ end
 local function verificarResposta(player, mensagem)
 	-- Verificar se o jogador terminou a introdução
 	if not jogadorTerminouIntroducao[player.UserId] then
+		warn("❌ Jogador tentou responder antes de terminar a introdução")
 		return
 	end
 
 	if jogadorEmEspera[player.UserId] then
+		warn("⚠️ Jogador tentou responder enquanto outra requisição está em andamento")
 		remote:FireClient(player, "Resultado", "⏳ Já estamos processando algo, aguarde.")
 		return
 	end
@@ -139,8 +141,16 @@ local function verificarResposta(player, mensagem)
 	remote:FireClient(player, "Resultado", "⏳ ChatGPT está analisando sua resposta...")
 
 	local pergunta = perguntasAtuais[player.UserId]
+	if not pergunta then
+		warn("❌ Tentativa de verificar resposta sem pergunta ativa")
+		remote:FireClient(player, "Resultado", "❌ Erro: Nenhuma pergunta ativa.")
+		jogadorEmEspera[player.UserId] = false
+		return
+	end
+
 	local dados = { id = pergunta.id, resposta = mensagem }
 	local success, respostaServer = pcall(function()
+		print("📤 Enviando resposta para o servidor:", mensagem)
 		return HttpService:PostAsync(
 			RESPOSTA_URL,
 			HttpService:JSONEncode(dados),
@@ -149,9 +159,11 @@ local function verificarResposta(player, mensagem)
 	end)
 
 	if success then
+		print("📥 Resposta recebida do servidor:", respostaServer)
 		local resultado = HttpService:JSONDecode(respostaServer)
 
 		if resultado.correta then
+			print("✅ Resposta correta!")
 			local recompensa = math.random(10000, 50000)
 			local total = player:GetAttribute("Dinheiro") + recompensa
 			atualizarDinheiro(player, total)
@@ -184,6 +196,7 @@ local function verificarResposta(player, mensagem)
 				enviarPergunta(player)
 			end
 		else
+			print("❌ Resposta incorreta")
 			player:SetAttribute("Erros", player:GetAttribute("Erros") + 1)
 			local valorDebitoErro = math.random(20000, 100000)
 			local novoSaldo = math.max(0, player:GetAttribute("Dinheiro") - valorDebitoErro)
@@ -202,7 +215,7 @@ local function verificarResposta(player, mensagem)
 			end
 		end
 	else
-		warn("Erro ao consultar IA:", respostaServer)
+		warn("❌ Erro ao consultar IA:", respostaServer)
 		remote:FireClient(player, "Resultado", "❌ Erro ao verificar resposta.")
 	end
 
