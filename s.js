@@ -42,10 +42,30 @@ let perguntas = [];
 let perguntasUsadas = [];
 let serverStartTime = new Date();
 let isServerHealthy = true;
+let reinicializacaoEmAndamento = false;
+let ultimaReinicializacao = 0;
 
 const OPENROUTER_API_KEY = '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';
 
-// Tratamento de erros global
+// Função para encerrar o servidor com notificação
+const encerrarServidor = async (motivo) => {
+  try {
+    const mensagem = `🔴 SERVIDOR ENCERRANDO!\nMotivo: ${motivo}\nTempo de atividade: ${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos`;
+    await sendTelegramMessage(CHAT_ID, mensagem);
+    console.log(mensagem);
+  } catch (err) {
+    console.error("Erro ao enviar notificação de encerramento:", err);
+  } finally {
+    process.exit(0);
+  }
+};
+
+// Tratamento de sinais de encerramento
+process.on('SIGINT', () => encerrarServidor('Sinal SIGINT recebido (Ctrl+C)'));
+process.on('SIGTERM', () => encerrarServidor('Sinal SIGTERM recebido'));
+process.on('SIGQUIT', () => encerrarServidor('Sinal SIGQUIT recebido'));
+
+// Tratamento de erros não capturados
 process.on('uncaughtException', async (error) => {
   isServerHealthy = false;
   const errorMsg = `⚠️ ERRO CRÍTICO: O servidor encontrou um erro não tratado: ${error.message}`;
@@ -60,7 +80,7 @@ process.on('uncaughtException', async (error) => {
   
   // Aguarda 5 segundos para garantir que a mensagem seja enviada antes de encerrar
   setTimeout(() => {
-    process.exit(1);
+    encerrarServidor('Erro não tratado detectado');
   }, 5000);
 });
 
@@ -110,6 +130,15 @@ const monitorServerHealth = () => {
       }
     }
   }, 300000); // 5 minutos = 300000ms
+};
+
+// Função para normalizar texto (remover acentos e converter para minúsculas)
+const normalizarTexto = (texto) => {
+  return texto
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 };
 
 // Conexão com MongoDB
@@ -177,7 +206,7 @@ app.use((req, res, next) => {
   // Quando a resposta terminar
   res.on('finish', () => {
     const duration = Date.now() - start;
-    const durationMinutes = (duration / 60000).toFixed(2); // Converter para minutos com 2 casas decimais
+    const durationMinutes = (duration / 60000).toFixed(2);
     const log = `${req.method} ${req.originalUrl} ${res.statusCode} ${durationMinutes} minutos`;
     
     // Registrar requisições lentas (mais de 5 segundos = 0.083 minutos)
@@ -185,22 +214,39 @@ app.use((req, res, next) => {
       console.warn(`⚠️ Requisição lenta: ${log}`);
       sendTelegramMessage(CHAT_ID, `⚠️ Requisição lenta detectada: ${log}`).catch(console.error);
     }
+    
+    // Log detalhado para debug
+    console.log(`📡 Resposta enviada: ${log}`);
+    console.log(`📦 Corpo da resposta:`, res.body);
   });
   
   next();
 });
 
+// Rota para verificar status do servidor
+app.get('/status', (req, res) => {
+  res.json({
+    status: 'online',
+    uptime: Math.floor((new Date() - serverStartTime) / 1000 / 60),
+    perguntasAtivas: perguntas.length,
+    perguntasUsadas: perguntasUsadas.length
+  });
+});
+
 // Sorteia uma pergunta
 app.get('/pergunta', async (req, res) => {
   try {
+    console.log('📝 Recebida requisição para nova pergunta');
     const todas = await Pergunta.find();
     const naoUsadas = todas.filter(p => !perguntasUsadas.includes(p._id.toString()));
 
     if (!naoUsadas.length) {
+      console.log('⚠️ Todas as perguntas já foram usadas');
       return res.status(404).json({ erro: 'Todas as perguntas já foram usadas. Reinicie a partida.' });
     }
 
     const sorteada = naoUsadas[Math.floor(Math.random() * naoUsadas.length)];
+    console.log(`🎲 Pergunta sorteada: ${sorteada.pergunta}`);
 
     perguntas = [
       {
@@ -231,7 +277,43 @@ app.post('/resposta', async (req, res) => {
 
   const pergunta = perguntas[0];
 
-  const prompt = `
+  // Função para verificar se a resposta está correta, tolerando erros de acentuação
+  const verificarResposta = (respostaJogador, respostaCorreta) => {
+    // Normaliza ambas as strings (remove acentos, converte para minúsculas, remove espaços extras)
+    const respostaJogadorNormalizada = normalizarTexto(respostaJogador);
+    const respostaCorretaNormalizada = normalizarTexto(respostaCorreta);
+    
+    // Verifica se contém mais de 2 palavras
+    const palavras = respostaJogadorNormalizada.split(/\s+/).filter(p => p.length > 0);
+    if (palavras.length > 2) {
+      return false; // Mais de 2 palavras, considerado incorreto conforme regra
+    }
+    
+    // Compara as strings normalizadas
+    return respostaJogadorNormalizada === respostaCorretaNormalizada;
+  };
+
+  // Criar uma flag para controlar se já respondemos ao cliente
+  let respondido = false;
+  let tentativas = 0;
+  const maxTentativas = 2; // Número máximo de tentativas
+
+  // Função para fazer a requisição à IA ou usar verificação local
+  const processarResposta = async () => {
+    tentativas++;
+    
+    try {
+      console.log(`Tentativa ${tentativas} de processar resposta...`);
+      
+      // Primeiro, tentar usar nossa própria validação
+      const resultado = verificarResposta(resposta, pergunta.correta);
+      const acertou = resultado;
+      
+      // Se for a primeira tentativa, tentar consultar a IA para casos mais complexos
+      if (tentativas === 1) {
+        console.log("Tentando confirmação com IA...");
+        
+        const prompt = `
 A resposta correta para a pergunta "${pergunta.pergunta}" é "${pergunta.correta}".
 O jogador respondeu: "${resposta}"
 
@@ -239,85 +321,190 @@ Verifique se a resposta do jogador está correta, se tiver erros de acentuação
 
 Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
 `;
+        
+        // Criar um AbortController para poder cancelar a requisição se demorar demais
+        const controller = new AbortController();
+        
+        // Timer para cancelar a requisição após 20 segundos
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          console.warn("⚠️ Requisição à IA cancelada após 20 segundos");
+          sendTelegramMessage(CHAT_ID, "⚠️ ALERTA: Requisição à IA cancelada após 20 segundos").catch(console.error);
+        }, 20000);
 
-  // Criar uma flag para notificar lentidão
-  let notificadoLentidao = false;
-
-  // Timer para detectar lentidão (40 segundos)
-  const lentidaoTimer = setTimeout(() => {
-    notificadoLentidao = true;
-    // Envia resposta ao cliente avisando sobre a lentidão
-    res.json({ 
-      aviso: "Estamos processando sua resposta. A IA está demorando mais que o normal, por favor aguarde...",
-      processando: true 
-    });
-    
-    // Registra no console e notifica via Telegram
-    console.warn("⚠️ IA demorando mais de 40 segundos para processar resposta!");
-    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para processar resposta!`).catch(console.error);
-  }, 40000);
-
-  try {
-    const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'deepseek/deepseek-chat-v3-0324:free',
-      messages: [{ role: 'user', content: prompt }]
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost',
-        'X-Title': 'SeuProjetoRoblox'
-      },
-      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
-    });
-
-    // Limpa o timer de lentidão
-    clearTimeout(lentidaoTimer);
-
-    // Se já enviamos resposta de lentidão, não enviar nova resposta
-    if (notificadoLentidao) {
-      return;
-    }
-
-    const texto = completion.data?.choices?.[0]?.message?.content?.toLowerCase() || '';
-    const acertou = texto.includes("true");
-
-    // Enviar resultado para o Telegram
-    await sendTelegramMessage(CHAT_ID, `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'}`);
-
-    if (acertou) {
-      perguntasUsadas.push(pergunta.id);
-      perguntas = [];
-
-      const total = await Pergunta.countDocuments();
-
-      if (perguntasUsadas.length >= total) {
         try {
-          await sendTelegramMessage(CHAT_ID, "⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
-          setTimeout(() => {
-            process.exit(0);
-          }, 2000);
-        } catch (err) {
-          console.error("Falha ao enviar notificação de reinício:", err);
-          process.exit(0);
+          const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+            model: 'deepseek/deepseek-chat-v3-0324:free',
+            messages: [{ role: 'user', content: prompt }]
+          }, {
+            headers: {
+              'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+              'Content-Type': 'application/json',
+              'HTTP-Referer': 'http://localhost',
+              'X-Title': 'SeuProjetoRoblox'
+            },
+            signal: controller.signal,
+            timeout: 25000 // Um pouco maior que o AbortController para dar chance ao cancelamento
+          });
+
+          // Limpar o timer se a requisição foi bem-sucedida
+          clearTimeout(timeoutId);
+
+          const texto = completion.data?.choices?.[0]?.message?.content?.toLowerCase() || '';
+          const acertouIA = texto.includes("true");
+          
+          // Se houver discrepância entre nossa verificação e a IA, registrar
+          if (acertou !== acertouIA) {
+            console.log(`⚠️ Discrepância na verificação: Nossa função diz ${acertou}, IA diz ${acertouIA}`);
+            await sendTelegramMessage(CHAT_ID, 
+              `⚠️ DISCREPÂNCIA: Para resposta "${resposta}"\n` +
+              `Verificação local: ${acertou ? "CORRETA" : "INCORRETA"}\n` +
+              `Verificação IA: ${acertouIA ? "CORRETA" : "INCORRETA"}\n` +
+              `Resposta esperada: "${pergunta.correta}"`
+            );
+          }
+          
+          // Usamos o resultado da IA se disponível
+          console.log(`Usando resultado da IA: ${acertouIA}`);
+          
+          // Enviar resultado para o Telegram
+          await sendTelegramMessage(CHAT_ID, `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n${acertouIA ? '✅ CORRETA!' : '❌ INCORRETA!'}`);
+          
+          if (acertouIA) {
+            perguntasUsadas.push(pergunta.id);
+            perguntas = [];
+
+            const total = await Pergunta.countDocuments();
+
+            if (perguntasUsadas.length >= total) {
+              try {
+                await sendTelegramMessage(CHAT_ID, "⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
+                setTimeout(() => {
+                  encerrarServidor('Todas as perguntas foram respondidas');
+                }, 2000);
+              } catch (err) {
+                console.error("Falha ao enviar notificação de reinício:", err);
+                encerrarServidor('Erro ao reiniciar servidor');
+              }
+            }
+          }
+          
+          // Só responde se ainda não foi respondido
+          if (!respondido) {
+            respondido = true;
+            res.json({ correta: acertouIA });
+          }
+          
+          return true; // Processamento bem-sucedido
+        } catch (iaError) {
+          // Se a IA falhar, usamos nossa própria verificação como fallback
+          console.error(`❌ Erro ao consultar IA: ${iaError.message}`);
+          clearTimeout(timeoutId);
+          
+          // Se for um erro de timeout, tentaremos novamente
+          const isCancelled = iaError.name === 'AbortError' || iaError.code === 'ECONNABORTED' || 
+                          (iaError.message && iaError.message.includes('timeout'));
+                          
+          if (isCancelled && tentativas < maxTentativas) {
+            console.log(`🔄 Iniciando nova tentativa...`);
+            // Informar o cliente que estamos tentando novamente apenas na primeira falha
+            if (tentativas === 1 && !respondido) {
+              respondido = true;
+              res.json({ 
+                aviso: "Estamos processando sua resposta. A IA está demorando mais que o normal, aguarde enquanto tentamos novamente...",
+                processando: true 
+              });
+            }
+            return false; // Sinaliza que devemos tentar novamente
+          }
+          
+          // Se não for timeout ou já tentamos o máximo, usamos nossa verificação
+          console.log(`Usando verificação local devido a falha da IA: ${resultado}`);
         }
       }
-    }
+      
+      // Se a IA falhou ou é a segunda tentativa, usar nossa própria verificação
+      // Enviar resultado para o Telegram
+      if (!respondido) {
+        await sendTelegramMessage(CHAT_ID, 
+          `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n` +
+          `${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'}\n` +
+          `(Verificação local)`
+        );
+        
+        if (acertou) {
+          perguntasUsadas.push(pergunta.id);
+          perguntas = [];
 
-    res.json({ correta: acertou });
+          const total = await Pergunta.countDocuments();
 
-  } catch (error) {
-    // Limpa o timer de lentidão
-    clearTimeout(lentidaoTimer);
-    
-    // Se já enviamos resposta de lentidão, não enviar nova resposta de erro
-    if (notificadoLentidao) {
-      return;
+          if (perguntasUsadas.length >= total) {
+            try {
+              await sendTelegramMessage(CHAT_ID, "⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
+              setTimeout(() => {
+                encerrarServidor('Todas as perguntas foram respondidas');
+              }, 2000);
+            } catch (err) {
+              console.error("Falha ao enviar notificação de reinício:", err);
+              encerrarServidor('Erro ao reiniciar servidor');
+            }
+          }
+        }
+        
+        respondido = true;
+        res.json({ 
+          correta: acertou,
+          verificacao: "local" // Indicar que usamos verificação local
+        });
+      }
+      
+      return true; // Processamento concluído
+      
+    } catch (error) {
+      console.error(`❌ Erro ao processar resposta (tentativa ${tentativas}):`, error.message);
+      sendTelegramMessage(CHAT_ID, `❌ Erro ao processar resposta (tentativa ${tentativas}): ${error.message}`).catch(console.error);
+      
+      // Se ainda não atingimos o máximo de tentativas, podemos tentar novamente
+      if (tentativas < maxTentativas) {
+        console.log(`🔄 Iniciando nova tentativa...`);
+        return false; // Sinaliza que devemos tentar novamente
+      }
+      
+      // Se chegamos aqui, já tentamos o máximo de vezes
+      // Se ainda não respondemos ao cliente, responder com verificação local
+      if (!respondido) {
+        respondido = true;
+        
+        // Usar nossa verificação local como última instância
+        const resultado = verificarResposta(resposta, pergunta.correta);
+        
+        await sendTelegramMessage(CHAT_ID, 
+          `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n` +
+          `${resultado ? '✅ CORRETA!' : '❌ INCORRETA!'}\n` +
+          `(Verificação local de fallback após erros)`
+        );
+        
+        if (resultado) {
+          perguntasUsadas.push(pergunta.id);
+          perguntas = [];
+        }
+        
+        res.json({ 
+          correta: resultado,
+          verificacao: "local_fallback"
+        });
+      }
+      
+      return true; // Não tentar novamente
     }
-    
-    console.error("❌ Erro ao consultar IA:", error.message);
-    sendTelegramMessage(CHAT_ID, `❌ Erro ao consultar IA: ${error.message}`).catch(console.error);
-    res.status(500).json({ correta: false, erro: "Erro ao processar resposta." });
+  };
+
+  // Primeira chamada à função de processamento
+  let resultado = await processarResposta();
+  
+  // Loop de tentativas se o processamento falhar
+  while (!resultado && tentativas < maxTentativas) {
+    resultado = await processarResposta();
   }
 });
 
@@ -344,260 +531,241 @@ Atenção:
 Responda apenas com a dica.
 `;
 
-  // Criar uma flag para notificar lentidão
-  let notificadoLentidao = false;
+  // Criar uma flag para controlar se já respondemos ao cliente
+  let respondido = false;
+  let tentativas = 0;
+  const maxTentativas = 2; // Número máximo de tentativas
 
-  // Timer para detectar lentidão (40 segundos)  
-  const lentidaoTimer = setTimeout(() => {
-    notificadoLentidao = true;
-    // Envia resposta ao cliente avisando sobre a lentidão
-    res.json({ 
-      aviso: "Estamos processando sua dica. A IA está demorando mais que o normal, por favor aguarde...",
-      processando: true 
-    });
+  // Função para fazer a requisição à IA
+  const fazerRequisicaoIA = async () => {
+    tentativas++;
     
-    // Registra no console e notifica via Telegram
-    console.warn("⚠️ IA demorando mais de 40 segundos para gerar dica!");
-    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para gerar dica!`).catch(console.error);
-  }, 40000);
+    try {
+      console.log(`Tentativa ${tentativas} de gerar dica...`);
+      
+      // Criar um AbortController para poder cancelar a requisição se demorar demais
+      const controller = new AbortController();
+      
+      // Timer para cancelar a requisição após 20 segundos
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.warn(`⚠️ Requisição à IA para dica cancelada após 20 segundos (tentativa ${tentativas})`);
+        sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: Requisição à IA para dica cancelada após 20 segundos (tentativa ${tentativas})`).catch(console.error);
+      }, 20000);
 
-  try {
-    const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'deepseek/deepseek-chat-v3-0324:free',
-      messages: [{ role: 'user', content: prompt }]
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost',
-        'X-Title': 'SeuProjetoRoblox'
-      },
-      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
-    });
+      const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+        model: 'deepseek/deepseek-chat-v3-0324:free',
+        messages: [{ role: 'user', content: prompt }]
+      }, {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost',
+          'X-Title': 'SeuProjetoRoblox'
+        },
+        signal: controller.signal,
+        timeout: 25000 // Um pouco maior que o AbortController para dar chance ao cancelamento
+      });
 
-    // Limpa o timer de lentidão
-    clearTimeout(lentidaoTimer);
+      // Limpar o timer se a requisição foi bem-sucedida
+      clearTimeout(timeoutId);
 
-    // Se já enviamos resposta de lentidão, não enviar nova resposta
-    if (notificadoLentidao) {
-      return;
+      const dica = completion.data?.choices?.[0]?.message?.content?.trim();
+      
+      // Enviar dica para o Telegram
+      await sendTelegramMessage(CHAT_ID, `💡 DICA SOLICITADA: "${dica}"`);
+      
+      // Só responde se ainda não foi respondido
+      if (!respondido) {
+        respondido = true;
+        res.json({ dica });
+      }
+
+      return true; // Requisição bem-sucedida
+    } catch (error) {
+      // Verifica se foi um erro de timeout ou abort
+      const isCancelled = error.name === 'AbortError' || error.code === 'ECONNABORTED' || 
+                          (error.message && error.message.includes('timeout'));
+      
+      console.error(`❌ Erro ao gerar dica (tentativa ${tentativas}):`, error.message);
+      sendTelegramMessage(CHAT_ID, `❌ Erro ao gerar dica (tentativa ${tentativas}): ${error.message}`).catch(console.error);
+      
+      // Se foi cancelado e ainda não atingimos o máximo de tentativas, podemos tentar novamente
+      if (isCancelled && tentativas < maxTentativas) {
+        console.log(`🔄 Iniciando nova tentativa para dica...`);
+        // Informar o cliente que estamos tentando novamente apenas na primeira falha
+        if (tentativas === 1 && !respondido) {
+          respondido = true;
+          res.json({ 
+            aviso: "Estamos processando sua dica. A IA está demorando mais que o normal, aguarde enquanto tentamos novamente...",
+            processando: true 
+          });
+        }
+        return false; // Sinaliza que devemos tentar novamente
+      }
+      
+      // Se chegamos aqui, ou não foi timeout ou já tentamos o máximo de vezes
+      // Se ainda não respondemos ao cliente, responder com erro
+      if (!respondido) {
+        respondido = true;
+        
+        // Se foi erro de timeout, gerar dica criativa baseada na resposta
+        if (isCancelled) {
+          console.log("⚠️ Gerando dica baseada na resposta após falhas consecutivas");
+          
+          // Função para gerar dica baseada na resposta
+          const gerarDicaCriativa = (pergunta, resposta) => {
+            resposta = resposta.toLowerCase().trim();
+            // Extrair características da resposta para usar na dica
+            const caracteristicas = [];
+            
+            // Comprimento da palavra
+            caracteristicas.push(`tem ${resposta.length} letras`);
+            
+            // Primeira letra
+            caracteristicas.push(`começa com a letra "${resposta[0].toUpperCase()}"`);
+            
+            // Se contém vogais ou mais consoantes
+            const vogais = (resposta.match(/[aeiouáàâãéèêíìîóòôõúùû]/gi) || []).length;
+            const consoantes = resposta.length - vogais;
+            if (vogais > consoantes) {
+              caracteristicas.push("tem mais vogais que consoantes");
+            } else if (consoantes > vogais) {
+              caracteristicas.push("tem mais consoantes que vogais");
+            }
+            
+            // Se tiver espaço, indica que tem mais de uma palavra
+            if (resposta.includes(' ')) {
+              const palavras = resposta.split(' ').filter(p => p.length > 0);
+              caracteristicas.push(`é composta por ${palavras.length} palavras`);
+            }
+            
+            // Escolher duas características aleatórias para usar na dica
+            const caracteristicasEscolhidas = [];
+            while (caracteristicasEscolhidas.length < 2 && caracteristicas.length > 0) {
+              const indice = Math.floor(Math.random() * caracteristicas.length);
+              caracteristicasEscolhidas.push(caracteristicas[indice]);
+              caracteristicas.splice(indice, 1);
+            }
+            
+            // Insultos variados para adicionar na dica
+            const insultos = [
+              "seu cérebro de minhoca",
+              "seu idiota",
+              "cabeça de vento",
+              "zero de QI",
+              "seu incompetente",
+              "anta destreinada",
+              "fracassado mental",
+              "jumento digital"
+            ];
+            
+            // Escolher um insulto aleatório
+            const insulto = insultos[Math.floor(Math.random() * insultos.length)];
+            
+            // Formar a dica com uma das características e um insulto
+            if (caracteristicasEscolhidas.length === 2) {
+              return `A resposta ${caracteristicasEscolhidas[0]}, ${insulto}! E ainda por cima ${caracteristicasEscolhidas[1]}. Consegue acertar agora ou vai continuar provando sua burrice?`;
+            } else if (caracteristicasEscolhidas.length === 1) {
+              return `Vou te dar uma dica bem óbvia, ${insulto}: a resposta ${caracteristicasEscolhidas[0]}. Se não acertar agora, desista!`;
+            } else {
+              return `Use esse seu cérebro microscópico, ${insulto}! A resposta é muito mais simples do que você imagina!`;
+            }
+          };
+          
+          const dicaCriativa = gerarDicaCriativa(pergunta.pergunta, pergunta.correta);
+          
+          await sendTelegramMessage(CHAT_ID, 
+            `⚠️ DICA AUTOMÁTICA CRIATIVA após falha da IA!\n` +
+            `💡 DICA GERADA: "${dicaCriativa}"`
+          );
+          
+          res.json({ 
+            dica: dicaCriativa,
+            aviso: "Dica gerada automaticamente devido a problemas técnicos com a IA."
+          });
+        } else {
+          res.status(500).json({ erro: "Erro ao gerar dica." });
+        }
+      }
+      
+      return true; // Não tentar novamente
     }
+  };
 
-    const dica = completion.data?.choices?.[0]?.message?.content?.trim();
-    
-    // Enviar dica para o Telegram
-    await sendTelegramMessage(CHAT_ID, `💡 DICA SOLICITADA: "${dica}"`);
-    
-    res.json({ dica });
-
-  } catch (error) {
-    // Limpa o timer de lentidão
-    clearTimeout(lentidaoTimer);
-    
-    // Se já enviamos resposta de lentidão, não enviar nova resposta de erro
-    if (notificadoLentidao) {
-      return;
-    }
-    
-    console.error("❌ Erro ao gerar dica:", error.message);
-    sendTelegramMessage(CHAT_ID, `❌ Erro ao gerar dica: ${error.message}`).catch(console.error);
-    res.status(500).json({ erro: "Erro ao gerar dica." });
+  // Primeira chamada à função de requisição
+  let resultado = await fazerRequisicaoIA();
+  
+  // Loop de tentativas se a requisição falhar por timeout
+  while (!resultado && tentativas < maxTentativas) {
+    resultado = await fazerRequisicaoIA();
   }
 });
 
-// Rota protegida por senha para visualizar a resposta atual
-app.get('/admin/resposta', async (req, res) => {
-  const { senha } = req.query;
-  
-  // Senha simples para proteger a rota
-  if (senha !== 'admin123') {
-    return res.status(401).json({ erro: 'Acesso negado. Senha incorreta.' });
-  }
-  
-  if (!perguntas.length) {
-    return res.status(404).json({ erro: "Nenhuma pergunta ativa." });
-  }
-  
-  try {
-    await sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: Alguém acessou a resposta via painel admin!`);
-    
-    res.json({
-      pergunta: perguntas[0].pergunta,
-      resposta: perguntas[0].correta
-    });
-  } catch (err) {
-    console.error("❌ Erro ao acessar resposta:", err.message);
-    res.status(500).json({ erro: "Erro ao acessar resposta." });
-  }
-});
-
-// Reinicia o jogo
+// Rota para reiniciar o servidor
 app.post('/reiniciar', async (req, res) => {
-  perguntasUsadas = [];
-  perguntas = [];
-
-  const todas = await Pergunta.find();
-  console.log("♻️ Perguntas reiniciadas manualmente.");
   try {
-    await sendTelegramMessage(CHAT_ID, `♻️ Jogo reiniciado manualmente. Perguntas disponíveis: ${todas.length}`);
-  } catch (err) {
-    console.error("Falha ao enviar notificação de reinício manual:", err);
-  }
-
-  res.json({ mensagem: 'Partida reiniciada. Perguntas liberadas novamente.' });
-});
-
-// Status do jogo
-app.get('/status', async (req, res) => {
-  try {
-    const total = await Pergunta.countDocuments();
-    const usadas = perguntasUsadas.length;
-    const restantes = total - usadas;
-    
-    // Adicionar informações de saúde do servidor
-    const uptime = Math.floor((new Date() - serverStartTime) / 1000 / 60); // em minutos
-    const memoryUsage = Math.round(process.memoryUsage().rss / 1024 / 1024); // em MB
-
-    try {
-      await sendTelegramMessage(CHAT_ID, `📊 STATUS: ${usadas}/${total} perguntas usadas. Restantes: ${restantes}`);
-    } catch (err) {
-      console.error("Falha ao enviar notificação de status:", err);
+    // Verificar se já está em processo de reinicialização
+    if (reinicializacaoEmAndamento) {
+      return res.status(429).json({ 
+        erro: "Uma reinicialização já está em andamento. Por favor, aguarde.",
+        tempoRestante: Math.max(0, 5 - Math.floor((Date.now() - ultimaReinicializacao) / 1000))
+      });
     }
 
-    res.json({
-      totalPerguntas: total,
-      perguntasUsadas: usadas,
-      perguntasRestantes: restantes,
-      serverHealth: {
-        uptime: `${uptime} minutos`,
-        memory: `${memoryUsage} MB`,
-        mongoConnection: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'
-      }
-    });
-  } catch (err) {
-    console.error("❌ Erro ao obter status:", err.message);
-    sendTelegramMessage(CHAT_ID, `❌ Erro ao obter status: ${err.message}`).catch(console.error);
-    res.status(500).json({ erro: "Erro ao obter status." });
-  }
-});
-
-// Rota simples para verificação de saúde
-app.get('/health', (req, res) => {
-  const mongoStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  
-  if (mongoStatus === 'connected' && isServerHealthy) {
-    res.status(200).json({ 
-      status: 'ok',
-      uptime: `${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos`,
-      mongo: mongoStatus
-    });
-  } else {
-    res.status(503).json({ 
-      status: 'unhealthy',
-      uptime: `${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos`,
-      mongo: mongoStatus
-    });
-  }
-});
-
-// Tratamento de erros para rotas não encontradas
-app.use((req, res) => {
-  res.status(404).json({ erro: 'Rota não encontrada' });
-});
-
-// Tratamento global de erros
-app.use(async (err, req, res, next) => {
-  const errorMsg = `❌ Erro interno do servidor: ${err.message}`;
-  console.error(errorMsg);
-  
-  try {
-    await sendTelegramMessage(CHAT_ID, errorMsg);
-  } catch (telegramErr) {
-    console.error("Falha ao enviar notificação de erro interno:", telegramErr);
-  }
-  
-  res.status(500).json({ erro: 'Erro interno do servidor' });
-});
-
-// Inicia o servidor
-const server = app.listen(port, '0.0.0.0', async () => {
-  console.log(`🚀 Servidor rodando em http://localhost:${port}`);
-  try {
-    await sendTelegramMessage(CHAT_ID, `🚀 Servidor rodando em http://localhost:${port}`);
-  } catch (err) {
-    console.error("Falha ao enviar notificação de inicialização:", err);
-  }
-});
-
-// Flag para evitar envios duplicados na finalização
-let isShuttingDown = false;
-
-// Tratamento para desligamento gracioso
-const gracefulShutdown = async (signal) => {
-  if (isShuttingDown) {
-    console.log("Processo de desligamento já em andamento, ignorando sinal repetido.");
-    return;
-  }
-  
-  isShuttingDown = true;
-  console.log(`⚠️ Sinal ${signal} recebido. Iniciando encerramento...`);
-  
-  try {
-    // Tentar enviar a notificação primeiro
-    console.log("Enviando notificação de encerramento para Telegram...");
-    await sendTelegramMessage(CHAT_ID, `⚠️ Servidor sendo encerrado (sinal ${signal})`);
-    console.log("✅ Notificação de encerramento enviada com sucesso!");
-  } catch (err) {
-    console.error("❌ Falha ao enviar notificação de encerramento:", err);
-  }
-  
-  // Agora proceder com o encerramento
-  console.log("Fechando servidor HTTP...");
-  server.close(async () => {
-    console.log('Servidor HTTP fechado.');
-    
-    // Fecha a conexão com MongoDB
-    try {
-      await mongoose.connection.close();
-      console.log('Conexão MongoDB fechada.');
-      try {
-        await sendTelegramMessage(CHAT_ID, `📴 Servidor encerrado corretamente.`);
-        console.log("✅ Notificação final enviada com sucesso!");
-      } catch (err) {
-        console.error("❌ Falha ao enviar notificação final:", err);
-      }
-      process.exit(0);
-    } catch (err) {
-      console.error('Erro ao fechar conexão MongoDB:', err);
-      try {
-        await sendTelegramMessage(CHAT_ID, `❌ Erro ao encerrar servidor: ${err.message}`);
-      } catch (telegramErr) {
-        console.error("Falha ao enviar notificação de erro de encerramento:", telegramErr);
-      }
-      process.exit(1);
+    // Verificar tempo desde a última reinicialização
+    const tempoDesdeUltimaReinicializacao = Date.now() - ultimaReinicializacao;
+    if (tempoDesdeUltimaReinicializacao < 5000) { // 5 segundos
+      return res.status(429).json({ 
+        erro: "Aguarde 5 segundos entre as reinicializações.",
+        tempoRestante: Math.ceil((5000 - tempoDesdeUltimaReinicializacao) / 1000)
+      });
     }
-  });
-  
-  // Força o encerramento após 10 segundos se não conseguir desligar corretamente
-  setTimeout(() => {
-    console.error('Timeout de desligamento gracioso. Forçando encerramento.');
-    process.exit(1);
-  }, 10000);
-};
 
-// Captura sinais de encerramento de forma síncrona primeiro
-process.on('SIGTERM', () => {
-  console.log("SIGTERM recebido");
-  gracefulShutdown('SIGTERM');
+    // Marcar início da reinicialização
+    reinicializacaoEmAndamento = true;
+    ultimaReinicializacao = Date.now();
+
+    // Notificar início da reinicialização
+    await sendTelegramMessage(CHAT_ID, "🔄 Iniciando reinicialização do servidor...");
+
+    // Resetar variáveis
+    perguntas = [];
+    perguntasUsadas = [];
+
+    // Buscar novas perguntas do banco
+    const todas = await Pergunta.find();
+    console.log(`📚 Total de perguntas no banco: ${todas.length}`);
+    await sendTelegramMessage(CHAT_ID, `📚 Total de perguntas no banco: ${todas.length}`);
+
+    // Marcar fim da reinicialização
+    reinicializacaoEmAndamento = false;
+
+    res.json({ 
+      mensagem: "Servidor reinicializado com sucesso!",
+      totalPerguntas: todas.length
+    });
+  } catch (err) {
+    console.error("❌ Erro ao reiniciar servidor:", err);
+    reinicializacaoEmAndamento = false;
+    
+    try {
+      await sendTelegramMessage(CHAT_ID, `❌ Erro ao reiniciar servidor: ${err.message}`);
+    } catch (telegramErr) {
+      console.error("Falha ao enviar notificação de erro de reinicialização:", telegramErr);
+    }
+    
+    res.status(500).json({ 
+      erro: "Erro ao reiniciar servidor.",
+      detalhes: err.message
+    });
+  }
 });
 
-process.on('SIGINT', () => {
-  console.log("SIGINT recebido (Ctrl+C)");
-  gracefulShutdown('SIGINT');
+// Iniciar o servidor
+app.listen(port, () => {
+  console.log(`✅ Servidor rodando na porta ${port}`);
 });
-
-// Para dar tempo de mandar a msg para o telegram depois do Ctrl+C
-process.stdin.resume();
 
 
 
