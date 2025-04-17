@@ -598,3 +598,6 @@ process.on('SIGINT', () => {
 
 // Para dar tempo de mandar a msg para o telegram depois do Ctrl+C
 process.stdin.resume();
+
+
+
