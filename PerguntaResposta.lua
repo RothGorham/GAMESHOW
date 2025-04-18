@@ -70,6 +70,24 @@ local respostasOfensivas = {
 	"Você jogou ou foi só um surto coletivo?"
 }
 
+-- Global state management for statistics saving
+local EstadoSalvamento = {
+	jogadores = {}, -- Table to track saving state per player
+
+	iniciar = function(self, player)
+		self.jogadores[player.UserId] = {
+			esperandoCPF = false,
+			cpfDigitado = nil,
+			tentativasCPF = 0,
+			tentativasSenha = 0
+		}
+	end,
+
+	limpar = function(self, player)
+		self.jogadores[player.UserId] = nil
+	end
+}
+
 -- Atualizar dinheiro
 local function atualizarDinheiro(player, novoValor)
 	player:SetAttribute("Dinheiro", novoValor)
@@ -102,143 +120,210 @@ local function verificarCredenciais(cpf, senha)
 	end
 end
 
--- Função para exibir estatísticas finais e salvar dados
+-- Improved statistics display function
 local function exibirEstatisticasFinais(player)
 	local acertos = player:GetAttribute("Acertos") or 0
 	local erros = player:GetAttribute("Erros") or 0
 	local ajudas = player:GetAttribute("Ajuda") or 0
 	local pulos = player:GetAttribute("Pulos") or 0
 	local dinheiro = player:GetAttribute("Dinheiro") or 0
-	
-	-- Exibir estatísticas
-	local mensagem = "📊 RESUMO FINAL 📊\n"
-	mensagem = mensagem .. "✅ Acertos: " .. acertos .. " | ❌ Erros: " .. erros .. "\n"
-	mensagem = mensagem .. "💡 Dicas: " .. ajudas .. " | 🔄 Pulos: " .. pulos .. "\n"
-	mensagem = mensagem .. "[Resultado]: 💰 BALANÇO FINANCEIRO 💰\n"
-	mensagem = mensagem .. "Total ganho: R$ " .. dinheiro .. "\n"
-	mensagem = mensagem .. "Total gasto: R$ 0\n"
-	mensagem = mensagem .. "└─ Erros: R$ 0\n"
-	mensagem = mensagem .. "└─ Dicas: R$ 0\n"
-	mensagem = mensagem .. "└─ Pulos: R$ 0\n"
-	mensagem = mensagem .. "[Resultado]: 💵 SALDO FINAL: R$ " .. dinheiro .. " 💵"
-	
+
+	-- Calculate actual expenses
+	local gastoErro = debitosErro[player.UserId] or 0
+	local gastoAjuda = debitosAjuda[player.UserId] or 0
+	local gastoPulo = debitosPulo[player.UserId] or 0
+	local totalGasto = gastoErro + gastoAjuda + gastoPulo
+
+	-- Format currency values
+	local function formatarMoeda(valor)
+		return string.format("R$ %d", valor)
+	end
+
+	-- Build detailed statistics message
+	local mensagem = string.format([[
+📊 RESUMO FINAL 📊
+✅ Acertos: %d | ❌ Erros: %d
+💡 Dicas: %d | 🔄 Pulos: %d
+
+[Resultado]: 💰 BALANÇO FINANCEIRO 💰
+Total ganho: %s
+Total gasto: %s
+└─ Erros: %s
+└─ Dicas: %s
+└─ Pulos: %s
+
+[Resultado]: 💵 SALDO FINAL: %s 💵]], 
+		acertos, erros, ajudas, pulos,
+		formatarMoeda(dinheiro + totalGasto),
+		formatarMoeda(totalGasto),
+		formatarMoeda(gastoErro),
+		formatarMoeda(gastoAjuda),
+		formatarMoeda(gastoPulo),
+		formatarMoeda(dinheiro)
+	)
+
 	remote:FireClient(player, "Resultado", mensagem)
-	
+
+	-- Initialize saving state
+	EstadoSalvamento:iniciar(player)
+
 	task.wait(2)
 	remote:FireClient(player, "Resultado", "Deseja salvar suas estatísticas? Digite 'sim!' para salvar ou 'não!' para encerrar.")
-	
-	local function processarResposta(msg)
-		if msg:lower() == "sim!" then
-			remote:FireClient(player, "Resultado", "Digite seu CPF (apenas números):")
-			return true
-		elseif msg:lower() == "não!" or msg:lower() == "nao!" then
-			-- Obter mensagem ofensiva do servidor
-			local success, response = pcall(function()
-				return HttpService:PostAsync(
-					BASE_URL .. "/gerar-mensagem",
-					HttpService:JSONEncode({ tipo = "recusar" }),
-					Enum.HttpContentType.ApplicationJson
-				)
-			end)
-			
-			if success then
-				local resultado = HttpService:JSONDecode(response)
-				remote:FireClient(player, "Resultado", resultado.mensagem)
-			else
-				remote:FireClient(player, "Resultado", "👋 Até a próxima, fracassado!")
-			end
-			return false
-		else
-			remote:FireClient(player, "Resultado", "⚠️ Digite 'sim!' para salvar ou 'não!' para encerrar.")
-			return nil
-		end
-	end
-	
-	local function processarCPF(cpf)
-		if not validarCPF(cpf) then
-			remote:FireClient(player, "Resultado", "❌ CPF inválido. Digite novamente (apenas números):")
-			return false
-		end
-		remote:FireClient(player, "Resultado", "Digite sua senha:")
-		return true
-	end
-	
-	local function processarSenha(cpf, senha)
-		local resultado = verificarCredenciais(cpf, senha)
-		if resultado.sucesso then
-			-- Salvar estatísticas
-			local success, response = pcall(function()
-				return HttpService:PostAsync(
-					BASE_URL .. "/salvar-estatisticas",
-					HttpService:JSONEncode({
-						cpf = cpf,
-						senha = senha,
-						estatisticas = {
-							acertos = acertos,
-							erros = erros,
-							ajudas = ajudas,
-							pulos = pulos,
-							dinheiroFinal = dinheiro,
-							data = os.date("%Y-%m-%d %H:%M:%S")
-						}
-					}),
-					Enum.HttpContentType.ApplicationJson
-				)
-			end)
-			
-			if success then
-				local resposta = HttpService:JSONDecode(response)
-				if resposta.sucesso then
-					remote:FireClient(player, "Resultado", "✅ Estatísticas salvas com sucesso!")
-				else
-					remote:FireClient(player, "Resultado", "❌ " .. (resposta.mensagem or "Erro ao salvar estatísticas"))
-				end
-			else
-				remote:FireClient(player, "Resultado", "❌ Erro ao salvar estatísticas")
-			end
-		else
-			-- Obter mensagem ofensiva para credenciais inválidas
-			local success, response = pcall(function()
-				return HttpService:PostAsync(
-					BASE_URL .. "/gerar-mensagem",
-					HttpService:JSONEncode({ tipo = "credenciais_invalidas" }),
-					Enum.HttpContentType.ApplicationJson
-				)
-			end)
-			
-			if success then
-				local mensagemErro = HttpService:JSONDecode(response)
-				remote:FireClient(player, "Resultado", mensagemErro.mensagem)
-			else
-				remote:FireClient(player, "Resultado", "❌ CPF ou senha incorretos, seu incompetente!")
-			end
-		end
-	end
-	
-	-- Estado para controlar o fluxo
-	local esperandoCPF = false
-	local cpfDigitado = nil
-	
-	player.Chatted:Connect(function(msg)
-		if not esperandoCPF then
-			local resultado = processarResposta(msg)
-			if resultado == true then
-				esperandoCPF = true
-			elseif resultado == false then
-				-- Encerrar
-				return
-			end
-		elseif esperandoCPF and not cpfDigitado then
-			if processarCPF(msg) then
-				cpfDigitado = msg
-			end
-		elseif cpfDigitado then
-			processarSenha(cpfDigitado, msg)
-			-- Resetar estado
-			esperandoCPF = false
-			cpfDigitado = nil
+
+	-- Handle player response
+	local connection
+	connection = player.Chatted:Connect(function(msg)
+		local estado = EstadoSalvamento.jogadores[player.UserId]
+		if not estado then return end
+
+		if not estado.esperandoCPF and not estado.cpfDigitado then
+			processarRespostaSalvamento(player, msg, connection)
+		elseif estado.esperandoCPF and not estado.cpfDigitado then
+			processarCPF(player, msg)
+		elseif estado.cpfDigitado then
+			processarSenha(player, estado.cpfDigitado, msg)
+			-- Cleanup after processing
+			EstadoSalvamento:limpar(player)
+			connection:Disconnect()
 		end
 	end)
+end
+
+-- Improved response processing
+local function processarRespostaSalvamento(player, msg, connection)
+	local estado = EstadoSalvamento.jogadores[player.UserId]
+	if not estado then return end
+
+	if msg:lower() == "sim!" then
+		estado.esperandoCPF = true
+		remote:FireClient(player, "Resultado", "Digite seu CPF (apenas números):")
+	elseif msg:lower() == "não!" or msg:lower() == "nao!" then
+		-- Get offensive message from server
+		local success, response = pcall(function()
+			return HttpService:PostAsync(
+				BASE_URL .. "/gerar-mensagem",
+				HttpService:JSONEncode({ tipo = "recusar" }),
+				Enum.HttpContentType.ApplicationJson
+			)
+		end)
+
+		if success then
+			local resultado = HttpService:JSONDecode(response)
+			remote:FireClient(player, "Resultado", resultado.mensagem)
+		else
+			remote:FireClient(player, "Resultado", "👋 Até a próxima, fracassado!")
+		end
+
+		-- Cleanup
+		EstadoSalvamento:limpar(player)
+		connection:Disconnect()
+	else
+		remote:FireClient(player, "Resultado", "⚠️ Digite 'sim!' para salvar ou 'não!' para encerrar.")
+	end
+end
+
+-- Improved CPF processing with retry tracking
+local function processarCPF(player, cpf)
+	local estado = EstadoSalvamento.jogadores[player.UserId]
+	if not estado then return end
+
+	if not validarCPF(cpf) then
+		estado.tentativasCPF = estado.tentativasCPF + 1
+
+		if estado.tentativasCPF >= maxTentativas then
+			remote:FireClient(player, "Resultado", "❌ Número máximo de tentativas excedido. CPF inválido.")
+			EstadoSalvamento:limpar(player)
+			return
+		end
+
+		remote:FireClient(player, "Resultado", string.format(
+			"❌ CPF inválido. Tentativa %d/%d. Digite novamente (apenas números):", 
+			estado.tentativasCPF, maxTentativas
+			))
+		return
+	end
+
+	-- Store CPF and proceed to password
+	estado.cpfDigitado = cpf
+	estado.esperandoCPF = false
+	remote:FireClient(player, "Resultado", "Digite sua senha:")
+end
+
+-- Função para processar senha
+local function processarSenha(player, cpf, senha)
+	local estado = EstadoSalvamento.jogadores[player.UserId]
+	if not estado then return end
+
+	local resultado = verificarCredenciais(cpf, senha)
+	if resultado.sucesso then
+		-- Salvar estatísticas
+		local success, response = pcall(function()
+			-- Obter estatísticas diretamente do player
+			local acertos = player:GetAttribute("Acertos") or 0
+			local erros = player:GetAttribute("Erros") or 0
+			local ajudas = player:GetAttribute("Ajuda") or 0
+			local pulos = player:GetAttribute("Pulos") or 0
+			local dinheiro = player:GetAttribute("Dinheiro") or 0
+
+			return HttpService:PostAsync(
+				BASE_URL .. "/salvar-estatisticas",
+				HttpService:JSONEncode({
+					cpf = cpf,
+					senha = senha,
+					estatisticas = {
+						acertos = acertos,
+						erros = erros,
+						ajudas = ajudas,
+						pulos = pulos,
+						dinheiroFinal = dinheiro,
+						data = os.date("%Y-%m-%d %H:%M:%S")
+					}
+				}),
+				Enum.HttpContentType.ApplicationJson
+			)
+		end)
+
+		if success then
+			local resposta = HttpService:JSONDecode(response)
+			if resposta.sucesso then
+				remote:FireClient(player, "Resultado", "✅ Estatísticas salvas com sucesso!")
+			else
+				remote:FireClient(player, "Resultado", "❌ " .. (resposta.mensagem or "Erro ao salvar estatísticas"))
+			end
+		else
+			remote:FireClient(player, "Resultado", "❌ Erro ao salvar estatísticas")
+		end
+	else
+		estado.tentativasSenha = (estado.tentativasSenha or 0) + 1
+
+		if estado.tentativasSenha >= maxTentativas then
+			remote:FireClient(player, "Resultado", "❌ Senha incorreta. Número máximo de tentativas excedido.")
+			EstadoSalvamento:limpar(player)
+			return
+		end
+
+		-- Obter mensagem ofensiva para credenciais inválidas
+		local success, response = pcall(function()
+			return HttpService:PostAsync(
+				BASE_URL .. "/gerar-mensagem",
+				HttpService:JSONEncode({ tipo = "credenciais_invalidas" }),
+				Enum.HttpContentType.ApplicationJson
+			)
+		end)
+
+		if success then
+			local mensagemErro = HttpService:JSONDecode(response)
+			remote:FireClient(player, "Resultado", mensagemErro.mensagem)
+		else
+			remote:FireClient(player, "Resultado", "❌ CPF ou senha incorretos, seu incompetente!")
+		end
+
+		-- Pedir nova senha
+		remote:FireClient(player, "Resultado", string.format(
+			"Digite sua senha novamente (tentativa %d/%d):", 
+			estado.tentativasSenha, maxTentativas
+			))
+	end
 end
 
 -- Função para verificar conexão com o servidor
@@ -295,7 +380,7 @@ local function enviarPergunta(player)
 			remote:FireClient(player, "Resultado", "❌ " .. pergunta.erro)
 			return
 		end
-		
+
 		perguntasAtuais[player.UserId] = pergunta
 		player:SetAttribute("MensagemRecebida", "valorX")
 
