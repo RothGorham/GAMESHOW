@@ -51,6 +51,18 @@ local debitosPulo = {}
 local respostasTemporarias = {} -- Armazena respostas aguardando confirmação
 local jogadorEsperandoConfirmacao = {} -- Jogadores esperando confirmação
 local jogadorTerminouIntroducao = {} -- Controle de jogadores que terminaram a introdução
+local tentativasCPF = {} -- Contador de tentativas de CPF
+local tentativasSenha = {} -- Contador de tentativas de senha
+local maxTentativas = 3 -- Número máximo de tentativas
+
+-- Tabela de respostas ofensivas para quando o jogador não quer salvar
+local respostasOfensivas = {
+	"Tá certo… melhor não passar vergonha mesmo.",
+	"Decisão sábia. Com esse desempenho, nem o sistema te aceita.",
+	"Eu também teria vergonha de salvar esse fracasso.",
+	"Evitar o banco foi a única coisa inteligente que você fez hoje.",
+	"Você jogou ou foi só um surto coletivo?"
+}
 
 -- Atualizar dinheiro
 local function atualizarDinheiro(player, novoValor)
@@ -65,61 +77,92 @@ local function atualizarDinheiro(player, novoValor)
 end
 
 -- Função para exibir as estatísticas finais de forma organizada
-local function exibirEstatisticasFinais(player, acertos, erros, ajudas, pulos, totalGanho, gastoErro, gastoAjuda, gastoPulo, saldoFinal)
-	-- Início do relatório
-	remote:FireClient(player, "Resultado", "🏁 FIM DA PARTIDA! 🏁")
-	task.wait(2)
+local function exibirEstatisticasFinais(player)
+	local acertos = player:GetAttribute("Acertos") or 0
+	local erros = player:GetAttribute("Erros") or 0
+	local ajudas = player:GetAttribute("Ajuda") or 0
+	local pulos = player:GetAttribute("Pulos") or 0
+	local dinheiro = player:GetAttribute("Dinheiro") or 0
+	
+	local mensagem = "📊 RESUMO FINAL 📊\n"
+	mensagem = mensagem .. "✅ Acertos: " .. acertos .. " | ❌ Erros: " .. erros .. "\n"
+	mensagem = mensagem .. "💡 Dicas: " .. ajudas .. " | 🔄 Pulos: " .. pulos .. "\n"
+	mensagem = mensagem .. "[Resultado]: 💰 BALANÇO FINANCEIRO 💰\n"
+	mensagem = mensagem .. "Total ganho: R$ " .. dinheiro .. "\n"
+	mensagem = mensagem .. "Total gasto: R$ 0\n"
+	mensagem = mensagem .. "└─ Erros: R$ 0\n"
+	mensagem = mensagem .. "└─ Dicas: R$ 0\n"
+	mensagem = mensagem .. "└─ Pulos: R$ 0\n"
+	mensagem = mensagem .. "[Resultado]: 💵 SALDO FINAL: R$ " .. dinheiro .. " 💵"
+	
+	remote:FireClient(player, "Resultado", mensagem)
+	
+	-- Após mostrar as estatísticas, perguntar se quer salvar
+	wait(2) -- Espera 2 segundos para dar tempo de ler as estatísticas
+	perguntarSalvarDados(player)
+end
 
-	-- Resumo de desempenho
-	local resumoDesempenho = string.format(
-		"📊 RESUMO FINAL 📊\n" ..
-			"✅ Acertos: %d | ❌ Erros: %d\n" ..
-			"💡 Dicas: %d | 🔁 Pulos: %d",
-		acertos, erros, ajudas, pulos
-	)
-	remote:FireClient(player, "Resultado", resumoDesempenho)
-	task.wait(3)
-
-	-- Resumo financeiro
-	local resumoFinanceiro = string.format(
-		"💰 BALANÇO FINANCEIRO 💰\n" ..
-			"➕ Total ganho: R$ %d\n" ..
-			"➖ Total gasto: R$ %d\n" ..
-			"   ├─ Erros: R$ %d\n" ..
-			"   ├─ Dicas: R$ %d\n" ..
-			"   └─ Pulos: R$ %d",
-		totalGanho, (gastoErro + gastoAjuda + gastoPulo), gastoErro, gastoAjuda, gastoPulo
-	)
-	remote:FireClient(player, "Resultado", resumoFinanceiro)
-	task.wait(3)
-
-	-- Resultado final
-	local resultadoFinal = string.format("💵 SALDO FINAL: R$ %d 💵", saldoFinal)
-	remote:FireClient(player, "Resultado", resultadoFinal)
+-- Função para verificar conexão com o servidor
+local function verificarConexaoServidor()
+	local success, response = pcall(function()
+		return HttpService:GetAsync(BASE_URL .. "/status")
+	end)
+	
+	if success then
+		local status = HttpService:JSONDecode(response)
+		print("📡 Status do servidor:", status.status)
+		print("⏱️ Tempo de atividade:", status.uptime, "minutos")
+		return true
+	else
+		warn("❌ Erro ao verificar conexão com o servidor:", response)
+		return false
+	end
 end
 
 -- pergunta do servidor
 local function enviarPergunta(player)
 	-- Verificar se o jogador terminou a introdução antes de enviar a pergunta
 	if not jogadorTerminouIntroducao[player.UserId] then
+		warn("❌ Tentativa de enviar pergunta antes do jogador terminar a introdução")
 		return
 	end
 
+	-- Verificar conexão com o servidor
+	if not verificarConexaoServidor() then
+		remote:FireClient(player, "Resultado", "❌ Erro de conexão com o servidor. Tentando reconectar...")
+		task.wait(5) -- Aguarda 5 segundos antes de tentar novamente
+		if not verificarConexaoServidor() then
+			remote:FireClient(player, "Resultado", "❌ Servidor indisponível. Tente novamente mais tarde.")
+			return
+		end
+	end
+
 	local success, response = pcall(function()
+		print("📤 Solicitando nova pergunta do servidor")
 		return HttpService:GetAsync(PERGUNTA_URL)
 	end)
 
 	if success then
+		print("📥 Resposta recebida do servidor:", response)
 		local pergunta = HttpService:JSONDecode(response)
+		if pergunta.erro then
+			warn("❌ Erro do servidor:", pergunta.erro)
+			remote:FireClient(player, "Resultado", "❌ " .. pergunta.erro)
+			return
+		end
+		
 		perguntasAtuais[player.UserId] = pergunta
 		player:SetAttribute("MensagemRecebida", "valorX")
 
 		task.wait(0.5)
 
 		remote:FireClient(player, "Pergunta", pergunta.pergunta)
+		print("✅ Pergunta enviada para o jogador:", pergunta.pergunta)
 	else
-		warn("Erro ao buscar pergunta:", response)
-		remote:FireClient(player, "Resultado", "❌ Erro ao buscar pergunta.")
+		warn("❌ Erro ao buscar pergunta:", response)
+		remote:FireClient(player, "Resultado", "❌ Erro ao buscar pergunta. Tentando novamente...")
+		task.wait(2)
+		enviarPergunta(player) -- Tenta novamente
 	end
 end
 
@@ -191,7 +234,7 @@ local function verificarResposta(player, mensagem)
 				local saldoFinal = math.max(0, totalGanho - totalGasto)
 
 				-- Exibir estatísticas de forma organizada usando a nova função
-				exibirEstatisticasFinais(player, acertos, erros, ajudas, pulos, totalGanho, gastoErro, gastoAjuda, gastoPulo, saldoFinal)
+				exibirEstatisticasFinais(player)
 			else
 				enviarPergunta(player)
 			end
@@ -307,13 +350,13 @@ local function criarIntroducaoParaJogador(player)
 	local function mostrarComEfeitoDigitacao(texto, cor)
 		mensagemTexto.Text = ""
 		mensagemTexto.TextColor3 = cor
-
+		
 		-- Calcular tempo por caractere para que caiba no tempo destinado (8 segundos no total)
 		-- Reservamos 6 segundos para digitação e 2 segundos para leitura
 		local tempoTotalDigitacao = 6 -- segundos
 		local tempoLeitura = 2 -- segundos
 		local tempoPorCaractere = tempoTotalDigitacao / #texto
-
+		
 		-- Efeito sonoro para nova mensagem
 		local somMensagem = Instance.new("Sound")
 		somMensagem.SoundId = "rbxassetid://255881176"
@@ -321,11 +364,11 @@ local function criarIntroducaoParaJogador(player)
 		somMensagem.Parent = screenGui
 		somMensagem:Play()
 		game:GetService("Debris"):AddItem(somMensagem, 2)
-
+		
 		-- Adicionar efeito de digitação
 		for i = 1, #texto do
 			mensagemTexto.Text = string.sub(texto, 1, i)
-
+			
 			-- Som de digitação leve a cada 5 caracteres
 			if i % 5 == 0 then
 				local somDigitacao = Instance.new("Sound")
@@ -335,10 +378,10 @@ local function criarIntroducaoParaJogador(player)
 				somDigitacao:Play()
 				game:GetService("Debris"):AddItem(somDigitacao, 1)
 			end
-
+			
 			task.wait(tempoPorCaractere)
 		end
-
+		
 		-- Tempo de leitura após concluir a digitação
 		task.wait(tempoLeitura)
 	end
@@ -346,13 +389,13 @@ local function criarIntroducaoParaJogador(player)
 	-- Exibir cada mensagem na sequência com tempo fixo
 	for i, mensagem in ipairs(mensagens) do
 		mostrarComEfeitoDigitacao(mensagem.texto, mensagem.cor)
-
+		
 		-- Efeito de fade para a próxima mensagem
 		for alpha = 0, 1, 0.1 do
 			mensagemTexto.TextTransparency = alpha
 			task.wait(0.03)
 		end
-
+		
 		mensagemTexto.TextTransparency = 0
 	end
 
@@ -390,6 +433,102 @@ local function criarIntroducaoParaJogador(player)
 	-- Iniciar o jogo enviando a primeira pergunta
 	task.wait(1)
 	enviarPergunta(player)
+end
+
+-- Função para validar CPF
+local function validarCPF(cpf)
+	cpf = cpf:gsub("[^%d]", "") -- Remove caracteres não numéricos
+	if #cpf ~= 11 then return false end
+	
+	-- Verifica se todos os dígitos são iguais
+	local primeiro = cpf:sub(1,1)
+	if cpf:match("^" .. primeiro:rep(11) .. "$") then return false end
+	
+	-- Cálculo do primeiro dígito verificador
+	local soma = 0
+	for i = 1, 9 do
+		soma = soma + tonumber(cpf:sub(i,i)) * (11 - i)
+	end
+	local resto = soma % 11
+	local dv1 = resto < 2 and 0 or 11 - resto
+	
+	-- Cálculo do segundo dígito verificador
+	soma = 0
+	for i = 1, 10 do
+		soma = soma + tonumber(cpf:sub(i,i)) * (12 - i)
+	end
+	resto = soma % 11
+	local dv2 = resto < 2 and 0 or 11 - resto
+	
+	return cpf:sub(10,11) == dv1 .. dv2
+end
+
+-- Função para obter mensagem do servidor
+local function obterMensagemServidor(tipo)
+	local success, response = pcall(function()
+		return HttpService:PostAsync(
+			BASE_URL .. "/gerar-mensagem",
+			HttpService:JSONEncode({ tipo = tipo }),
+			Enum.HttpContentType.ApplicationJson
+		)
+	end)
+	
+	if success then
+		local resultado = HttpService:JSONDecode(response)
+		return resultado.mensagem
+	else
+		return "Erro ao obter mensagem do servidor"
+	end
+end
+
+-- Função para enviar estatísticas para o servidor
+local function enviarEstatisticas(player, cpf, senha)
+	local dados = {
+		cpf = cpf,
+		senha = senha,
+		estatisticas = {
+			acertos = player:GetAttribute("Acertos"),
+			erros = player:GetAttribute("Erros"),
+			ajudas = player:GetAttribute("Ajuda"),
+			pulos = player:GetAttribute("Pulos"),
+			dinheiroFinal = player:GetAttribute("Dinheiro"),
+			data = os.date("%Y-%m-%d %H:%M:%S")
+		}
+	}
+	
+	local success, response = pcall(function()
+		return HttpService:PostAsync(
+			BASE_URL .. "/salvar-estatisticas",
+			HttpService:JSONEncode(dados),
+			Enum.HttpContentType.ApplicationJson
+		)
+	end)
+	
+	if success then
+		local resultado = HttpService:JSONDecode(response)
+		remote:FireClient(player, "Resultado", resultado.mensagem)
+	else
+		remote:FireClient(player, "Resultado", "Erro ao salvar estatísticas")
+	end
+end
+
+-- Função para coletar dados do aluno
+local function coletarDadosAluno(player)
+	remote:FireClient(player, "Resultado", "Deseja salvar suas estatísticas? Digite 'sim!'")
+	
+	player.Chatted:Connect(function(msg)
+		if msg:lower() == "sim!" then
+			remote:FireClient(player, "Resultado", "Digite seu CPF:")
+			
+			player.Chatted:Connect(function(cpf)
+				remote:FireClient(player, "Resultado", "Digite sua senha:")
+				
+				player.Chatted:Connect(function(senha)
+					enviarEstatisticas(player, cpf, senha)
+				end)
+			end)
+		end
+	end)
 end
 
 -- Quando jogador entra
