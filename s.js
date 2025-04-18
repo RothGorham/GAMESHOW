@@ -2,13 +2,15 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const mongoose = require('mongoose');
-const { Telegraf } = require('telegraf'); 
-const Pergunta = require('./models/Pergunta');
+const { Telegraf } = require('telegraf'); // Replace node-telegram-bot-api with telegraf
+const Pergunta = require('./models/Pergunta'); // This import is mandatory
+// Don't import Aluno here since we'll create it with the connection
+// const Aluno = require('./models/Aluno');
 
 const app = express();
 const port = 3000;
 
-// Configuração do Telegram
+// Configuração do Telegram com Telegraf
 const TELEGRAM_TOKEN = '7924764671:AAF0-GAy21U1yLIG7fVJoMODMrz9LrkmRgk';
 const CHAT_ID = '694857164';
 const bot = new Telegraf(TELEGRAM_TOKEN);
@@ -44,6 +46,52 @@ let serverStartTime = new Date();
 let isServerHealthy = true;
 
 const OPENROUTER_API_KEY = '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';
+
+// Definir o schema para estatísticas
+const estatSub = new mongoose.Schema({
+    saldo: Number,
+    acertos: Number,
+    erros: Number,
+    ajudas: Number,
+    pulos: Number,
+    totalGanho: Number,
+    gastoErro: Number,
+    gastoAjuda: Number,
+    gastoPulo: Number,
+    createdAt: { type: Date, default: Date.now }
+}, { _id: false });
+
+// Definir o schema para usuários
+const usuarioSchema = new mongoose.Schema({
+    nome: String,
+    cpf: String,
+    senha: String,
+    estatisticas: [estatSub],
+    dataCadastro: Date
+}, { collection: "usuarios" });
+
+// Definir o schema para perguntas
+const perguntaSchema = new mongoose.Schema({
+    pergunta: String,
+    correta: String
+}, { collection: "perguntas" });
+
+// Conexões com MongoDB - IMPORTANTE: Usar conexões separadas
+const alunosConnection = mongoose.createConnection('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/ALUNOS?retryWrites=true&w=majority&appName=GAME', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+});
+
+const perguntasConnection = mongoose.createConnection('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/PERGUNTAS?retryWrites=true&w=majority&appName=GAME', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+});
+
+// Modelos com as conexões corretas
+// Don't redefine Pergunta since it's already imported
+const Usuario = alunosConnection.model('Usuario', usuarioSchema);
+// Don't redefine Aluno since it's already imported
+const Aluno = alunosConnection.model('Aluno', usuarioSchema);
 
 // Tratamento de erros global
 process.on('uncaughtException', async (error) => {
@@ -210,6 +258,9 @@ app.get('/pergunta', async (req, res) => {
       }
     ];
 
+    // Enviar resposta automaticamente para o Telegram
+    await sendTelegramMessage(CHAT_ID, `📝 NOVA PERGUNTA: "${sorteada.pergunta}"\n🔑 RESPOSTA: "${sorteada.correta}"`);
+
     res.json(perguntas[0]);
   } catch (err) {
     console.error("❌ Erro ao buscar pergunta:", err.message);
@@ -220,7 +271,7 @@ app.get('/pergunta', async (req, res) => {
 
 // Verifica a resposta
 app.post('/resposta', async (req, res) => {
-  const { resposta } = req.body;
+  const { resposta, id } = req.body;
 
   if (!perguntas.length) {
     return res.status(404).json({ correta: false, erro: "Nenhuma pergunta ativa." });
@@ -228,14 +279,67 @@ app.post('/resposta', async (req, res) => {
 
   const pergunta = perguntas[0];
 
+  // Verificação direta para respostas simples (comparação case-insensitive)
+  const respostaJogador = resposta.trim().toLowerCase();
+  const respostaCorreta = pergunta.correta.trim().toLowerCase();
+  
+  // Verificação direta para respostas exatas ou que contenham a resposta correta
+  if (respostaJogador === respostaCorreta || respostaCorreta.includes(respostaJogador) || respostaJogador.includes(respostaCorreta)) {
+    // Resposta correta - processamento direto sem IA
+    console.log(`✅ Resposta correta verificada diretamente: "${resposta}" para "${pergunta.pergunta}"`);
+    
+    // Enviar resultado para o Telegram
+    await sendTelegramMessage(CHAT_ID, `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n✅ CORRETA! (verificação direta)`);
+    
+    perguntasUsadas.push(pergunta.id);
+    perguntas = [];
+    
+    const total = await Pergunta.countDocuments();
+    if (perguntasUsadas.length >= total) {
+      try {
+        await sendTelegramMessage(CHAT_ID, "⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
+        setTimeout(() => {
+          process.exit(0);
+        }, 2000);
+      } catch (err) {
+        console.error("Falha ao enviar notificação de reinício:", err);
+        process.exit(0);
+      }
+    }
+    
+    // Adicionar mensagem para exibição no chat
+    return res.json({ 
+      correta: true,
+      mensagem: "✅ Resposta correta!" 
+    });
+  }
+
+  // Se não for uma correspondência direta, usar a IA para verificação mais complexa
   const prompt = `
 A resposta correta para a pergunta "${pergunta.pergunta}" é "${pergunta.correta}".
 O jogador respondeu: "${resposta}"
 
-Verifique se a resposta do jogador está correta, se tiver erros de acentuação ou pontuação, tudo bem! Mas se a resposta contiver mais de 2 palavras, considere um erro.
+Verifique se a resposta do jogador está correta, se tiver erros de acentuação ou pontuação, tudo bem!
 
 Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
 `;
+
+  // Criar uma flag para notificar lentidão
+  let notificadoLentidao = false;
+
+  // Timer para detectar lentidão (40 segundos)
+  const lentidaoTimer = setTimeout(() => {
+    notificadoLentidao = true;
+    // Envia resposta ao cliente avisando sobre a lentidão
+    res.json({ 
+      aviso: "Estamos processando sua resposta. A IA está demorando mais que o normal, por favor aguarde...",
+      processando: true 
+    });
+    
+    // Registra no console e notifica via Telegram
+    console.warn("⚠️ IA demorando mais de 40 segundos para processar resposta!");
+    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para processar resposta!`).catch(console.error);
+  }, 40000);
 
   try {
     const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
@@ -248,11 +352,22 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
         'HTTP-Referer': 'http://localhost',
         'X-Title': 'SeuProjetoRoblox'
       },
-      timeout: 10000 // Timeout de 10 segundos para a requisição
+      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
     });
+
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
+
+    // Se já enviamos resposta de lentidão, não enviar nova resposta
+    if (notificadoLentidao) {
+      return;
+    }
 
     const texto = completion.data?.choices?.[0]?.message?.content?.toLowerCase() || '';
     const acertou = texto.includes("true");
+
+    // Enviar resultado para o Telegram
+    await sendTelegramMessage(CHAT_ID, `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'}`);
 
     if (acertou) {
       perguntasUsadas.push(pergunta.id);
@@ -271,18 +386,42 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
           process.exit(0);
         }
       }
+      
+      // Adicionar mensagem para resposta correta
+      return res.json({ 
+        correta: true,
+        mensagem: "✅ Resposta correta!" 
+      });
+    } else {
+      // Adicionar mensagem para resposta incorreta
+      return res.json({ 
+        correta: false,
+        mensagem: "❌ Resposta incorreta!" 
+      });
     }
 
-    res.json({ correta: acertou });
-
   } catch (error) {
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
+    
+    // Se já enviamos resposta de lentidão, não enviar nova resposta de erro
+    if (notificadoLentidao) {
+      return;
+    }
+    
     console.error("❌ Erro ao consultar IA:", error.message);
     sendTelegramMessage(CHAT_ID, `❌ Erro ao consultar IA: ${error.message}`).catch(console.error);
-    res.status(500).json({ correta: false });
+    
+    // Adicionar mensagem para erro
+    res.status(500).json({ 
+      correta: false, 
+      erro: "Erro ao processar resposta.",
+      mensagem: "❌ Erro ao verificar resposta." 
+    });
   }
 });
 
-// Gera dica 
+// Gera dica ofensiva
 app.get('/dica', async (req, res) => {
   if (!perguntas.length) {
     return res.status(404).json({ erro: "Nenhuma pergunta ativa para gerar dica." });
@@ -305,6 +444,23 @@ Atenção:
 Responda apenas com a dica.
 `;
 
+  // Criar uma flag para notificar lentidão
+  let notificadoLentidao = false;
+
+  // Timer para detectar lentidão (40 segundos)  
+  const lentidaoTimer = setTimeout(() => {
+    notificadoLentidao = true;
+    // Envia resposta ao cliente avisando sobre a lentidão
+    res.json({ 
+      aviso: "Estamos processando sua dica. A IA está demorando mais que o normal, por favor aguarde...",
+      processando: true 
+    });
+    
+    // Registra no console e notifica via Telegram
+    console.warn("⚠️ IA demorando mais de 40 segundos para gerar dica!");
+    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para gerar dica!`).catch(console.error);
+  }, 40000);
+
   try {
     const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model: 'deepseek/deepseek-chat-v3-0324:free',
@@ -316,17 +472,62 @@ Responda apenas com a dica.
         'HTTP-Referer': 'http://localhost',
         'X-Title': 'SeuProjetoRoblox'
       },
-      timeout: 10000 // Timeout de 10 segundos para a requisição
+      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
     });
 
-    const dica = completion.data?.choices?.[0]?.message?.content?.trim();
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
 
+    // Se já enviamos resposta de lentidão, não enviar nova resposta
+    if (notificadoLentidao) {
+      return;
+    }
+
+    const dica = completion.data?.choices?.[0]?.message?.content?.trim();
+    
+    // Enviar dica para o Telegram
+    await sendTelegramMessage(CHAT_ID, `💡 DICA SOLICITADA: "${dica}"`);
+    
     res.json({ dica });
 
   } catch (error) {
+    // Limpa o timer de lentidão
+    clearTimeout(lentidaoTimer);
+    
+    // Se já enviamos resposta de lentidão, não enviar nova resposta de erro
+    if (notificadoLentidao) {
+      return;
+    }
+    
     console.error("❌ Erro ao gerar dica:", error.message);
     sendTelegramMessage(CHAT_ID, `❌ Erro ao gerar dica: ${error.message}`).catch(console.error);
     res.status(500).json({ erro: "Erro ao gerar dica." });
+  }
+});
+
+// Rota protegida por senha para visualizar a resposta atual
+app.get('/admin/resposta', async (req, res) => {
+  const { senha } = req.query;
+  
+  // Senha simples para proteger a rota
+  if (senha !== 'admin123') {
+    return res.status(401).json({ erro: 'Acesso negado. Senha incorreta.' });
+  }
+  
+  if (!perguntas.length) {
+    return res.status(404).json({ erro: "Nenhuma pergunta ativa." });
+  }
+  
+  try {
+    await sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: Alguém acessou a resposta via painel admin!`);
+    
+    res.json({
+      pergunta: perguntas[0].pergunta,
+      resposta: perguntas[0].correta
+    });
+  } catch (err) {
+    console.error("❌ Erro ao acessar resposta:", err.message);
+    res.status(500).json({ erro: "Erro ao acessar resposta." });
   }
 });
 
@@ -396,7 +597,110 @@ app.get('/health', (req, res) => {
       uptime: `${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos`,
       mongo: mongoStatus
     });
-  }
+    }
+});
+
+// Rota para salvar estatísticas
+app.post('/salvar-estatisticas', async (req, res) => {
+    try {
+        const { cpf, senha, estatisticas } = req.body;
+        
+        // Validações básicas
+        if (!cpf || !senha) {
+            return res.status(400).json({ 
+                ok: false, 
+                msg: "CPF ou senha faltando",
+                mensagem: "❌ CPF ou senha faltando" 
+            });
+        }
+        if (!estatisticas) {
+            return res.status(400).json({ 
+                ok: false, 
+                msg: "Sem estatísticas",
+                mensagem: "❌ Sem estatísticas para salvar" 
+            });
+        }
+
+        // Normalizar o CPF (remover caracteres não numéricos)
+        const cpfNormalizado = cpf.toString().replace(/\D/g, '');
+        
+        // Verificar se o CPF tem 11 dígitos
+        if (cpfNormalizado.length !== 11) {
+            return res.status(400).json({ 
+                ok: false, 
+                msg: "CPF inválido! Digite apenas os 11 números do CPF.",
+                mensagem: "❌ CPF inválido! Digite apenas os 11 números do CPF." 
+            });
+        }
+
+        // Tentar buscar o usuário em ambos os modelos
+        let usuario = null;
+        
+        // Primeiro tenta no modelo Usuario
+        usuario = await Usuario.findOne({ cpf: cpfNormalizado });
+        
+        // Se não encontrar, tenta no modelo Aluno
+        if (!usuario) {
+            usuario = await Aluno.findOne({ cpf: cpfNormalizado });
+        }
+        
+        if (!usuario) {
+            console.log(`❌ CPF não encontrado: ${cpfNormalizado}`);
+            return res.status(401).json({ 
+                ok: false, 
+                msg: "CPF não encontrado",
+                mensagem: "❌ CPF não encontrado" 
+            });
+        }
+
+        // Verificar senha diretamente (comparação simples)
+        if (usuario.senha !== senha) {
+            console.log(`❌ Senha inválida para CPF: ${cpfNormalizado}`);
+            return res.status(401).json({ 
+                ok: false, 
+                msg: "Senha inválida",
+                mensagem: "❌ Senha inválida" 
+            });
+        }
+
+        // Adicionar estatísticas com a estrutura correta e valores padrão
+        const novaEstatistica = {
+            saldo: estatisticas.saldo || 0,
+            acertos: estatisticas.acertos || 0,
+            erros: estatisticas.erros || 0,
+            ajudas: estatisticas.ajudas || 0,
+            pulos: estatisticas.pulos || 0,
+            totalGanho: estatisticas.totalGanho || 0,
+            gastoErro: estatisticas.gastoErro || 0,
+            gastoAjuda: estatisticas.gastoAjuda || 0,
+            gastoPulo: estatisticas.gastoPulo || 0,
+            createdAt: new Date()
+        };
+
+        // Inicializar o array de estatísticas se não existir
+        if (!usuario.estatisticas) {
+            usuario.estatisticas = [];
+        }
+
+        usuario.estatisticas.push(novaEstatistica);
+        await usuario.save();
+        
+        // Notificar via Telegram
+        await sendTelegramMessage(CHAT_ID, `📊 Novo registro de estatísticas salvo para ${usuario.nome || 'Usuário'} (CPF: ${cpfNormalizado})`);
+
+        return res.json({ 
+            ok: true,
+            mensagem: "✅ Estatísticas salvas com sucesso!" 
+        });
+    } catch (err) {
+        console.error("❌ Erro ao salvar estatísticas:", err);
+        sendTelegramMessage(CHAT_ID, `❌ Erro ao salvar estatísticas: ${err.message}`).catch(console.error);
+        return res.status(500).json({ 
+            ok: false, 
+            msg: err.message,
+            mensagem: "❌ Erro ao salvar estatísticas. Tente novamente." 
+        });
+    }
 });
 
 // Tratamento de erros para rotas não encontradas
@@ -473,18 +777,18 @@ const gracefulShutdown = async (signal) => {
       } catch (telegramErr) {
         console.error("Falha ao enviar notificação de erro de encerramento:", telegramErr);
       }
-      process.exit(1);
+        process.exit(1);
     }
   });
   
-  // Força o encerramento 
+  // Força o encerramento após 10 segundos se não conseguir desligar corretamente
   setTimeout(() => {
     console.error('Timeout de desligamento gracioso. Forçando encerramento.');
     process.exit(1);
   }, 10000);
 };
 
-// recebe o sinal do encerramento
+// Captura sinais de encerramento de forma síncrona primeiro
 process.on('SIGTERM', () => {
   console.log("SIGTERM recebido");
   gracefulShutdown('SIGTERM');
