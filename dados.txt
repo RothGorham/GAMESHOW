@@ -19,3 +19,6 @@ pm2 start s.js
 (ideia)
 
 pm2 logs ( informacoes)
+
+
+ngrok http 3000
