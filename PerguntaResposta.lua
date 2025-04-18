@@ -8,8 +8,14 @@ local remote = Instance.new("RemoteEvent")
 remote.Name = "NotificarJogador"
 remote.Parent = ReplicatedStorage
 
+-- Debug function
+local function debugLog(message)
+	print("🔍 [DEBUG]: " .. message)
+end
+
 -- Sons no ReplicatedStorage
 local function criarSons()
+	debugLog("Criando sons...")
 	local somMensagem = Instance.new("Sound")
 	somMensagem.Name = "SomMensagem"
 	somMensagem.SoundId = "rbxassetid://115672426899732"
@@ -32,7 +38,7 @@ end
 criarSons()
 
 -- sem isso nao roda preciso do ngrok ~sempre lembrar~
-local BASE_URL = "https://9a74-179-153-34-87.ngrok-free.app"
+local BASE_URL = "https://f4fa-179-153-34-87.ngrok-free.app"
 
 -- Rotas específicas
 local PERGUNTA_URL = BASE_URL .. "/pergunta"
@@ -76,7 +82,27 @@ local function atualizarDinheiro(player, novoValor)
 	end
 end
 
--- Função para exibir as estatísticas finais de forma organizada
+-- Função para verificar credenciais com o servidor
+local function verificarCredenciais(cpf, senha)
+	local success, response = pcall(function()
+		return HttpService:PostAsync(
+			BASE_URL .. "/verificar-aluno",
+			HttpService:JSONEncode({
+				cpf = cpf,
+				senha = senha
+			}),
+			Enum.HttpContentType.ApplicationJson
+		)
+	end)
+
+	if success then
+		return HttpService:JSONDecode(response)
+	else
+		return { sucesso = false, mensagem = "Erro ao verificar credenciais" }
+	end
+end
+
+-- Função para exibir estatísticas finais e salvar dados
 local function exibirEstatisticasFinais(player)
 	local acertos = player:GetAttribute("Acertos") or 0
 	local erros = player:GetAttribute("Erros") or 0
@@ -84,6 +110,7 @@ local function exibirEstatisticasFinais(player)
 	local pulos = player:GetAttribute("Pulos") or 0
 	local dinheiro = player:GetAttribute("Dinheiro") or 0
 	
+	-- Exibir estatísticas
 	local mensagem = "📊 RESUMO FINAL 📊\n"
 	mensagem = mensagem .. "✅ Acertos: " .. acertos .. " | ❌ Erros: " .. erros .. "\n"
 	mensagem = mensagem .. "💡 Dicas: " .. ajudas .. " | 🔄 Pulos: " .. pulos .. "\n"
@@ -97,9 +124,121 @@ local function exibirEstatisticasFinais(player)
 	
 	remote:FireClient(player, "Resultado", mensagem)
 	
-	-- Após mostrar as estatísticas, perguntar se quer salvar
-	wait(2) -- Espera 2 segundos para dar tempo de ler as estatísticas
-	perguntarSalvarDados(player)
+	task.wait(2)
+	remote:FireClient(player, "Resultado", "Deseja salvar suas estatísticas? Digite 'sim!' para salvar ou 'não!' para encerrar.")
+	
+	local function processarResposta(msg)
+		if msg:lower() == "sim!" then
+			remote:FireClient(player, "Resultado", "Digite seu CPF (apenas números):")
+			return true
+		elseif msg:lower() == "não!" or msg:lower() == "nao!" then
+			-- Obter mensagem ofensiva do servidor
+			local success, response = pcall(function()
+				return HttpService:PostAsync(
+					BASE_URL .. "/gerar-mensagem",
+					HttpService:JSONEncode({ tipo = "recusar" }),
+					Enum.HttpContentType.ApplicationJson
+				)
+			end)
+			
+			if success then
+				local resultado = HttpService:JSONDecode(response)
+				remote:FireClient(player, "Resultado", resultado.mensagem)
+			else
+				remote:FireClient(player, "Resultado", "👋 Até a próxima, fracassado!")
+			end
+			return false
+		else
+			remote:FireClient(player, "Resultado", "⚠️ Digite 'sim!' para salvar ou 'não!' para encerrar.")
+			return nil
+		end
+	end
+	
+	local function processarCPF(cpf)
+		if not validarCPF(cpf) then
+			remote:FireClient(player, "Resultado", "❌ CPF inválido. Digite novamente (apenas números):")
+			return false
+		end
+		remote:FireClient(player, "Resultado", "Digite sua senha:")
+		return true
+	end
+	
+	local function processarSenha(cpf, senha)
+		local resultado = verificarCredenciais(cpf, senha)
+		if resultado.sucesso then
+			-- Salvar estatísticas
+			local success, response = pcall(function()
+				return HttpService:PostAsync(
+					BASE_URL .. "/salvar-estatisticas",
+					HttpService:JSONEncode({
+						cpf = cpf,
+						senha = senha,
+						estatisticas = {
+							acertos = acertos,
+							erros = erros,
+							ajudas = ajudas,
+							pulos = pulos,
+							dinheiroFinal = dinheiro,
+							data = os.date("%Y-%m-%d %H:%M:%S")
+						}
+					}),
+					Enum.HttpContentType.ApplicationJson
+				)
+			end)
+			
+			if success then
+				local resposta = HttpService:JSONDecode(response)
+				if resposta.sucesso then
+					remote:FireClient(player, "Resultado", "✅ Estatísticas salvas com sucesso!")
+				else
+					remote:FireClient(player, "Resultado", "❌ " .. (resposta.mensagem or "Erro ao salvar estatísticas"))
+				end
+			else
+				remote:FireClient(player, "Resultado", "❌ Erro ao salvar estatísticas")
+			end
+		else
+			-- Obter mensagem ofensiva para credenciais inválidas
+			local success, response = pcall(function()
+				return HttpService:PostAsync(
+					BASE_URL .. "/gerar-mensagem",
+					HttpService:JSONEncode({ tipo = "credenciais_invalidas" }),
+					Enum.HttpContentType.ApplicationJson
+				)
+			end)
+			
+			if success then
+				local mensagemErro = HttpService:JSONDecode(response)
+				remote:FireClient(player, "Resultado", mensagemErro.mensagem)
+			else
+				remote:FireClient(player, "Resultado", "❌ CPF ou senha incorretos, seu incompetente!")
+			end
+		end
+	end
+	
+	-- Estado para controlar o fluxo
+	local esperandoCPF = false
+	local cpfDigitado = nil
+	
+	player.Chatted:Connect(function(msg)
+		if not esperandoCPF then
+			local resultado = processarResposta(msg)
+			if resultado == true then
+				esperandoCPF = true
+			elseif resultado == false then
+				-- Encerrar
+				return
+			end
+		elseif esperandoCPF and not cpfDigitado then
+			if processarCPF(msg) then
+				cpfDigitado = msg
+			end
+		elseif cpfDigitado then
+			processarSenha(cpfDigitado, msg)
+			-- Resetar estado
+			esperandoCPF = false
+			cpfDigitado = nil
+		end
+	end)
 end
 
 -- Função para verificar conexão com o servidor
@@ -107,7 +246,7 @@ local function verificarConexaoServidor()
 	local success, response = pcall(function()
 		return HttpService:GetAsync(BASE_URL .. "/status")
 	end)
-	
+
 	if success then
 		local status = HttpService:JSONDecode(response)
 		print("📡 Status do servidor:", status.status)
@@ -137,6 +276,12 @@ local function enviarPergunta(player)
 		end
 	end
 
+	-- Contador regressivo de 5 segundos
+	for i = 5, 1, -1 do
+		remote:FireClient(player, "Resultado", "⏳ Preparando pergunta em " .. i .. " segundos...")
+		task.wait(1)
+	end
+
 	local success, response = pcall(function()
 		print("📤 Solicitando nova pergunta do servidor")
 		return HttpService:GetAsync(PERGUNTA_URL)
@@ -156,7 +301,8 @@ local function enviarPergunta(player)
 
 		task.wait(0.5)
 
-		remote:FireClient(player, "Pergunta", pergunta.pergunta)
+		-- Enviar apenas uma vez como resultado formatado
+		remote:FireClient(player, "Resultado", "\n❓ NOVA PERGUNTA ❓\n" .. pergunta.pergunta)
 		print("✅ Pergunta enviada para o jogador:", pergunta.pergunta)
 	else
 		warn("❌ Erro ao buscar pergunta:", response)
@@ -217,7 +363,7 @@ local function verificarResposta(player, mensagem)
 			task.wait(2)
 
 			local respondidas = player:GetAttribute("PerguntasRespondidas")
-			if respondidas >= 5 then
+			if respondidas >= 1 then
 				-- Estatísticas finais reais
 				local acertos = player:GetAttribute("Acertos")
 				local erros = player:GetAttribute("Erros")
@@ -350,13 +496,13 @@ local function criarIntroducaoParaJogador(player)
 	local function mostrarComEfeitoDigitacao(texto, cor)
 		mensagemTexto.Text = ""
 		mensagemTexto.TextColor3 = cor
-		
+
 		-- Calcular tempo por caractere para que caiba no tempo destinado (8 segundos no total)
 		-- Reservamos 6 segundos para digitação e 2 segundos para leitura
 		local tempoTotalDigitacao = 6 -- segundos
 		local tempoLeitura = 2 -- segundos
 		local tempoPorCaractere = tempoTotalDigitacao / #texto
-		
+
 		-- Efeito sonoro para nova mensagem
 		local somMensagem = Instance.new("Sound")
 		somMensagem.SoundId = "rbxassetid://255881176"
@@ -364,11 +510,11 @@ local function criarIntroducaoParaJogador(player)
 		somMensagem.Parent = screenGui
 		somMensagem:Play()
 		game:GetService("Debris"):AddItem(somMensagem, 2)
-		
+
 		-- Adicionar efeito de digitação
 		for i = 1, #texto do
 			mensagemTexto.Text = string.sub(texto, 1, i)
-			
+
 			-- Som de digitação leve a cada 5 caracteres
 			if i % 5 == 0 then
 				local somDigitacao = Instance.new("Sound")
@@ -378,10 +524,10 @@ local function criarIntroducaoParaJogador(player)
 				somDigitacao:Play()
 				game:GetService("Debris"):AddItem(somDigitacao, 1)
 			end
-			
+
 			task.wait(tempoPorCaractere)
 		end
-		
+
 		-- Tempo de leitura após concluir a digitação
 		task.wait(tempoLeitura)
 	end
@@ -389,13 +535,13 @@ local function criarIntroducaoParaJogador(player)
 	-- Exibir cada mensagem na sequência com tempo fixo
 	for i, mensagem in ipairs(mensagens) do
 		mostrarComEfeitoDigitacao(mensagem.texto, mensagem.cor)
-		
+
 		-- Efeito de fade para a próxima mensagem
 		for alpha = 0, 1, 0.1 do
 			mensagemTexto.TextTransparency = alpha
 			task.wait(0.03)
 		end
-		
+
 		mensagemTexto.TextTransparency = 0
 	end
 
@@ -439,11 +585,11 @@ end
 local function validarCPF(cpf)
 	cpf = cpf:gsub("[^%d]", "") -- Remove caracteres não numéricos
 	if #cpf ~= 11 then return false end
-	
+
 	-- Verifica se todos os dígitos são iguais
 	local primeiro = cpf:sub(1,1)
 	if cpf:match("^" .. primeiro:rep(11) .. "$") then return false end
-	
+
 	-- Cálculo do primeiro dígito verificador
 	local soma = 0
 	for i = 1, 9 do
@@ -451,7 +597,7 @@ local function validarCPF(cpf)
 	end
 	local resto = soma % 11
 	local dv1 = resto < 2 and 0 or 11 - resto
-	
+
 	-- Cálculo do segundo dígito verificador
 	soma = 0
 	for i = 1, 10 do
@@ -459,7 +605,7 @@ local function validarCPF(cpf)
 	end
 	resto = soma % 11
 	local dv2 = resto < 2 and 0 or 11 - resto
-	
+
 	return cpf:sub(10,11) == dv1 .. dv2
 end
 
@@ -472,7 +618,7 @@ local function obterMensagemServidor(tipo)
 			Enum.HttpContentType.ApplicationJson
 		)
 	end)
-	
+
 	if success then
 		local resultado = HttpService:JSONDecode(response)
 		return resultado.mensagem
@@ -495,7 +641,7 @@ local function enviarEstatisticas(player, cpf, senha)
 			data = os.date("%Y-%m-%d %H:%M:%S")
 		}
 	}
-	
+
 	local success, response = pcall(function()
 		return HttpService:PostAsync(
 			BASE_URL .. "/salvar-estatisticas",
@@ -503,7 +649,7 @@ local function enviarEstatisticas(player, cpf, senha)
 			Enum.HttpContentType.ApplicationJson
 		)
 	end)
-	
+
 	if success then
 		local resultado = HttpService:JSONDecode(response)
 		remote:FireClient(player, "Resultado", resultado.mensagem)
@@ -515,14 +661,14 @@ end
 -- Função para coletar dados do aluno
 local function coletarDadosAluno(player)
 	remote:FireClient(player, "Resultado", "Deseja salvar suas estatísticas? Digite 'sim!'")
-	
+
 	player.Chatted:Connect(function(msg)
 		if msg:lower() == "sim!" then
 			remote:FireClient(player, "Resultado", "Digite seu CPF:")
-			
+
 			player.Chatted:Connect(function(cpf)
 				remote:FireClient(player, "Resultado", "Digite sua senha:")
-				
+
 				player.Chatted:Connect(function(senha)
 					enviarEstatisticas(player, cpf, senha)
 				end)
@@ -676,7 +822,7 @@ Players.PlayerAdded:Connect(function(player)
 			if not jogadorEmEspera[player.UserId] and not jogadorEsperandoConfirmacao[player.UserId] then
 				respostasTemporarias[player.UserId] = msg
 				jogadorEsperandoConfirmacao[player.UserId] = true
-				remote:FireClient(player, "Resultado", "🤔 Sua resposta é: \"" .. msg .. "\"\nTem certeza? Digite 'sim!' para confirmar ou 'não!' para responder novamente.")
+				remote:FireClient(player, "Resultado", "🤔 Sua resposta é: \"" .. msg .. "\"\nTem certeza? Digite 'sim' para confirmar ou 'não' para responder novamente.")
 			end
 		end)
 	end
