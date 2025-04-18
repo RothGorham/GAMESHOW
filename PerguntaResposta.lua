@@ -63,6 +63,22 @@ local function atualizarDinheiro(player, novoValor)
 	end
 end
 
+-- Função para salvar dados do jogador
+local function SalvarDados(player, estatisticas)
+	remote:FireClient(player, "Resultado", "📊 Você gostaria de salvar suas estatísticas? Digite 'sim!' ou 'nao!'")
+	respostasTemporarias[player.UserId] = {
+		estatisticas = {
+			acertos = estatisticas.acertos,
+			erros = estatisticas.erros,
+			ajudas = estatisticas.ajudas,
+			pulos = estatisticas.pulos,
+			saldo = estatisticas.saldo
+		},
+		etapa = "confirmacao"
+	}
+	jogadorEsperandoConfirmacao[player.UserId] = true
+end
+
 -- Função para exibir as estatísticas finais de forma organizada
 local function exibirEstatisticasFinais(player, acertos, erros, ajudas, pulos, totalGanho, gastoErro, gastoAjuda, gastoPulo, saldoFinal)
 	-- Início do relatório
@@ -95,6 +111,23 @@ local function exibirEstatisticasFinais(player, acertos, erros, ajudas, pulos, t
 	-- Resultado final
 	local resultadoFinal = string.format("💵 SALDO FINAL: R$ %d 💵", saldoFinal)
 	remote:FireClient(player, "Resultado", resultadoFinal)
+	task.wait(2)
+
+	-- Preparar estatísticas para salvar
+	local estatisticas = {
+		saldo = saldoFinal,
+		acertos = acertos,
+		erros = erros,
+		ajudas = ajudas,
+		pulos = pulos,
+		totalGanho = totalGanho,
+		gastoErro = gastoErro,
+		gastoAjuda = gastoAjuda,
+		gastoPulo = gastoPulo
+	}
+
+	-- Oferecer opção de salvar estatísticas
+	SalvarDados(player, estatisticas)
 end
 
 -- pergunta do servidor
@@ -172,7 +205,7 @@ local function verificarResposta(player, mensagem)
 			task.wait(2)
 
 			local respondidas = player:GetAttribute("PerguntasRespondidas")
-			if respondidas >= 5 then
+			if respondidas >= 1 then
 				-- Estatísticas finais reais
 				local acertos = player:GetAttribute("Acertos")
 				local erros = player:GetAttribute("Erros")
@@ -489,6 +522,69 @@ Players.PlayerAdded:Connect(function(player)
 					return
 				else
 					remote:FireClient(player, "Resultado", "⚠️ Você tem uma resposta pendente para confirmar. Digite 'sim!' para confirmar ou 'não!' para cancelar.")
+					return
+				end
+			end
+
+			-- Processar confirmações de salvar dados
+			if respostasTemporarias[player.UserId] then
+				local dados = respostasTemporarias[player.UserId]
+
+				if dados.etapa == "confirmacao" then
+					if msg:lower() == "sim!" then
+						remote:FireClient(player, "Resultado", "🔒 Digite o seu CPF (apenas números):")
+						dados.etapa = "cpf"
+					elseif msg:lower() == "nao!" then
+						jogadorEsperandoConfirmacao[player.UserId] = false
+						respostasTemporarias[player.UserId] = nil
+						remote:FireClient(player, "Resultado", "😅 Então fica sem registro mesmo, gênio incompreendido!")
+					else
+						-- Adicionar esta parte para rejeitar respostas inválidas
+						remote:FireClient(player, "Resultado", "⚠️ Por favor, responda apenas com 'sim!' ou 'nao!'")
+					end
+					return
+				end
+
+				if dados.etapa == "cpf" then
+					-- Validar CPF (apenas números, 11 dígitos)
+					if not msg:match("^%d+$") or #msg ~= 11 then
+						remote:FireClient(player, "Resultado", "❌ CPF inválido! Digite apenas os 11 números do CPF.")
+						return
+					end
+					dados.cpf = msg
+					dados.etapa = "senha"
+					remote:FireClient(player, "Resultado", "🔑 Agora digite a sua senha:")
+					return
+				end
+
+				if dados.etapa == "senha" then
+					local payload = HttpService:JSONEncode({
+						cpf = dados.cpf,
+						senha = msg,
+						estatisticas = dados.estatisticas
+					})
+
+					local success, result = pcall(function()
+						return HttpService:PostAsync(
+							BASE_URL .. "/salvar-estatisticas",
+							payload,
+							Enum.HttpContentType.ApplicationJson
+						)
+					end)
+
+					if success then
+						local response = HttpService:JSONDecode(result)
+						if response.ok then
+							remote:FireClient(player, "Resultado", "✅ Estatísticas salvas com sucesso!")
+						else
+							remote:FireClient(player, "Resultado", "❌ " .. response.msg)
+						end
+					else
+						remote:FireClient(player, "Resultado", "❌ Erro ao salvar estatísticas: " .. tostring(result))
+					end
+
+					jogadorEsperandoConfirmacao[player.UserId] = false
+					respostasTemporarias[player.UserId] = nil
 					return
 				end
 			end
