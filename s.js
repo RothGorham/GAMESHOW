@@ -3,35 +3,110 @@ const cors = require('cors');
 const axios = require('axios');
 const mongoose = require('mongoose');
 const { Telegraf } = require('telegraf'); // Replace node-telegram-bot-api with telegraf
-const Pergunta = require('./models/Pergunta');
+const bcrypt = require('bcryptjs');
+const Aluno = require('./models/Aluno');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Configuração do Telegram com Telegraf
 const TELEGRAM_TOKEN = '7924764671:AAF0-GAy21U1yLIG7fVJoMODMrz9LrkmRgk';
 const CHAT_ID = '694857164';
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
-// Função melhorada para enviar mensagens ao Telegram com garantia de entrega
-const sendTelegramMessage = async (chatId, message) => {
-  return new Promise((resolve, reject) => {
-    try {
-      bot.telegram.sendMessage(chatId, message)
-        .then(() => {
-          console.log(`✅ Mensagem enviada para Telegram: ${message}`);
-          resolve(true);
-        })
-        .catch(error => {
-          console.error(`❌ Erro ao enviar mensagem para Telegram: ${error.message}`);
-          reject(error);
-        });
-    } catch (error) {
-      console.error(`❌ Erro ao tentar enviar mensagem para Telegram: ${error.message}`);
-      reject(error);
-    }
+// Inicializar o bot
+bot.launch()
+  .then(() => {
+    console.log('🤖 Bot do Telegram inicializado com sucesso!');
+    sendTelegramMessage(CHAT_ID, '🤖 Bot do Telegram inicializado com sucesso!')
+      .catch(err => console.error('Erro ao enviar mensagem de inicialização:', err));
+  })
+  .catch(err => {
+    console.error('❌ Erro ao inicializar bot do Telegram:', err);
   });
-};
+
+// Enable graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+// Schema para estatísticas dos alunos
+const estatisticasSchema = new mongoose.Schema({
+    acertos: { type: Number, required: true },
+    erros: { type: Number, required: true },
+    ajudas: { type: Number, required: true },
+    pulos: { type: Number, required: true },
+    dinheiroFinal: { type: Number, required: true },
+    data: { type: Date, required: true }
+}, { _id: false });
+
+// Schema para usuários (alunos)
+const usuarioSchema = new mongoose.Schema({
+    nome: { 
+        type: String,
+        required: true
+    },
+    cpf: { 
+        type: String, 
+        required: true, 
+        unique: true,
+        validate: {
+            validator: function(v) {
+                return /^\d{11}$/.test(v);
+            },
+            message: props => `${props.value} não é um CPF válido!`
+        }
+    },
+    senha: { 
+        type: String, 
+        required: true,
+        minlength: 6
+    },
+    estatisticas: [estatisticasSchema],
+    dataCadastro: { 
+        type: Date, 
+        default: Date.now 
+    }
+}, { collection: 'usuarios' });
+
+// Schema para perguntas
+const perguntaSchema = new mongoose.Schema({
+    pergunta: String,
+    correta: String
+}, { collection: 'GAME' });
+
+// Conexões com MongoDB
+const alunosConnection = mongoose.createConnection('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/ALUNOS?retryWrites=true&w=majority&appName=GAME');
+const perguntasConnection = mongoose.createConnection('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/PERGUNTAS?retryWrites=true&w=majority&appName=GAME');
+
+// Modelos
+const Usuario = alunosConnection.model('Usuario', usuarioSchema);
+const Pergunta = perguntasConnection.model('Pergunta', perguntaSchema);
+
+// Função para enviar mensagem para o Telegram
+async function sendTelegramMessage(chatId, message) {
+  console.log('📤 Tentando enviar mensagem para o Telegram:', message);
+  
+  try {
+    const result = await bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    console.log('✅ Mensagem enviada com sucesso:', result.message_id);
+    return result;
+  } catch (error) {
+    console.error('❌ Erro ao enviar mensagem para o Telegram:', error.message);
+    
+    // Tentar novamente após 5 segundos
+    console.log('🔄 Tentando enviar novamente em 5 segundos...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    try {
+      const retryResult = await bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
+      console.log('✅ Mensagem enviada com sucesso na segunda tentativa:', retryResult.message_id);
+      return retryResult;
+    } catch (retryError) {
+      console.error('❌ Erro na segunda tentativa de envio:', retryError.message);
+      throw retryError;
+    }
+  }
+}
 
 // Middleware
 app.use(cors());
@@ -135,69 +210,13 @@ const monitorServerHealth = () => {
 // Função para normalizar texto (remover acentos e converter para minúsculas)
 const normalizarTexto = (texto) => {
   return texto
-    .toLowerCase()
-    .trim()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+    .toLowerCase() // Converte para minúsculas
+    .trim() // Remove espaços no início e fim
+    .normalize("NFD") // Normaliza caracteres Unicode
+    .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+    .replace(/[^a-z0-9\s]/g, "") // Remove caracteres especiais, mantém apenas letras, números e espaços
+    .replace(/\s+/g, " "); // Substitui múltiplos espaços por um único espaço
 };
-
-// Conexão com MongoDB
-mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/PERGUNTAS?retryWrites=true&w=majority&appName=GAME', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-.then(async () => {
-  console.log("✅ Conectado ao MongoDB com sucesso!");
-  try {
-    await sendTelegramMessage(CHAT_ID, "✅ Servidor iniciado e conectado ao MongoDB com sucesso!");
-    isServerHealthy = true;
-
-    perguntasUsadas = [];
-    perguntas = [];
-
-    const todas = await Pergunta.find();
-    console.log(`📚 Total de perguntas no banco: ${todas.length}`);
-    await sendTelegramMessage(CHAT_ID, `📚 Total de perguntas no banco: ${todas.length}`);
-    console.log("🔁 Perguntas usadas resetadas no início do servidor.");
-    
-    // Iniciar monitoramento de saúde após conexão bem-sucedida
-    monitorServerHealth();
-  } catch (err) {
-    console.error("❌ Erro ao inicializar servidor:", err);
-    console.error("❌ Erro ao buscar perguntas:", err);
-    try {
-      await sendTelegramMessage(CHAT_ID, `❌ Erro ao buscar perguntas: ${err.message}`);
-    } catch (telegramErr) {
-      console.error("Falha ao enviar notificação de erro inicial:", telegramErr);
-    }
-  }
-})
-.catch(async err => {
-  console.error("❌ Erro ao conectar com o MongoDB:", err);
-  try {
-    await sendTelegramMessage(CHAT_ID, `❌ CRÍTICO: Erro ao conectar com o MongoDB: ${err.message}`);
-  } catch (telegramErr) {
-    console.error("Falha ao enviar notificação de erro de conexão:", telegramErr);
-  }
-  isServerHealthy = false;
-  
-  // Tentar reconectar após 30 segundos
-  setTimeout(() => {
-    console.log("🔄 Tentando reconectar ao MongoDB...");
-    mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.net/PERGUNTAS?retryWrites=true&w=majority&appName=GAME', {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    }).catch(async reconnectErr => {
-      console.error("❌ Falha na reconexão:", reconnectErr);
-      try {
-        await sendTelegramMessage(CHAT_ID, `❌ CRÍTICO: Falha na reconexão: ${reconnectErr.message}`);
-      } catch (telegramErr) {
-        console.error("Falha ao enviar notificação de erro de reconexão:", telegramErr);
-      }
-      process.exit(1); // Encerrar após falha na reconexão
-    });
-  }, 30000);
-});
 
 // Middleware para registrar requisições e capturar erros
 app.use((req, res, next) => {
@@ -277,222 +296,118 @@ app.post('/resposta', async (req, res) => {
 
   const pergunta = perguntas[0];
 
-  // Função para verificar se a resposta está correta, tolerando erros de acentuação
-  const verificarResposta = (respostaJogador, respostaCorreta) => {
-    // Normaliza ambas as strings (remove acentos, converte para minúsculas, remove espaços extras)
-    const respostaJogadorNormalizada = normalizarTexto(respostaJogador);
-    const respostaCorretaNormalizada = normalizarTexto(respostaCorreta);
-    
-    // Verifica se contém mais de 2 palavras
-    const palavras = respostaJogadorNormalizada.split(/\s+/).filter(p => p.length > 0);
-    if (palavras.length > 2) {
-      return false; // Mais de 2 palavras, considerado incorreto conforme regra
-    }
-    
-    // Compara as strings normalizadas
-    return respostaJogadorNormalizada === respostaCorretaNormalizada;
-  };
-
   // Criar uma flag para controlar se já respondemos ao cliente
   let respondido = false;
   let tentativas = 0;
   const maxTentativas = 2; // Número máximo de tentativas
 
-  // Função para fazer a requisição à IA ou usar verificação local
+  // Função para fazer a requisição à IA
   const processarResposta = async () => {
     tentativas++;
     
     try {
       console.log(`Tentativa ${tentativas} de processar resposta...`);
       
-      // Primeiro, tentar usar nossa própria validação
-      const resultado = verificarResposta(resposta, pergunta.correta);
-      const acertou = resultado;
-      
-      // Se for a primeira tentativa, tentar consultar a IA para casos mais complexos
-      if (tentativas === 1) {
-        console.log("Tentando confirmação com IA...");
-        
-        const prompt = `
+      const prompt = `
 A resposta correta para a pergunta "${pergunta.pergunta}" é "${pergunta.correta}".
 O jogador respondeu: "${resposta}"
 
-Verifique se a resposta do jogador está correta, se tiver erros de acentuação ou pontuação, tudo bem! Mas se a resposta contiver mais de 2 palavras, considere um erro.
+IMPORTANTE: Ignore diferenças de maiúsculas/minúsculas e acentuação.
+Por exemplo:
+- "FE" é igual a "fe" ou "Fe" ou "fE"
+- "João" é igual a "joao" ou "JOAO"
+- "café" é igual a "cafe" ou "CAFE"
 
 Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
 `;
-        
-        // Criar um AbortController para poder cancelar a requisição se demorar demais
-        const controller = new AbortController();
-        
-        // Timer para cancelar a requisição após 20 segundos
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-          console.warn("⚠️ Requisição à IA cancelada após 20 segundos");
-          sendTelegramMessage(CHAT_ID, "⚠️ ALERTA: Requisição à IA cancelada após 20 segundos").catch(console.error);
-        }, 20000);
 
-        try {
-          const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-            model: 'deepseek/deepseek-chat-v3-0324:free',
-            messages: [{ role: 'user', content: prompt }]
-          }, {
-            headers: {
-              'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-              'Content-Type': 'application/json',
-              'HTTP-Referer': 'http://localhost',
-              'X-Title': 'SeuProjetoRoblox'
-            },
-            signal: controller.signal,
-            timeout: 25000 // Um pouco maior que o AbortController para dar chance ao cancelamento
-          });
-
-          // Limpar o timer se a requisição foi bem-sucedida
-          clearTimeout(timeoutId);
-
-          const texto = completion.data?.choices?.[0]?.message?.content?.toLowerCase() || '';
-          const acertouIA = texto.includes("true");
-          
-          // Se houver discrepância entre nossa verificação e a IA, registrar
-          if (acertou !== acertouIA) {
-            console.log(`⚠️ Discrepância na verificação: Nossa função diz ${acertou}, IA diz ${acertouIA}`);
-            await sendTelegramMessage(CHAT_ID, 
-              `⚠️ DISCREPÂNCIA: Para resposta "${resposta}"\n` +
-              `Verificação local: ${acertou ? "CORRETA" : "INCORRETA"}\n` +
-              `Verificação IA: ${acertouIA ? "CORRETA" : "INCORRETA"}\n` +
-              `Resposta esperada: "${pergunta.correta}"`
-            );
-          }
-          
-          // Usamos o resultado da IA se disponível
-          console.log(`Usando resultado da IA: ${acertouIA}`);
-          
-          // Enviar resultado para o Telegram
-          await sendTelegramMessage(CHAT_ID, `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n${acertouIA ? '✅ CORRETA!' : '❌ INCORRETA!'}`);
-          
-          if (acertouIA) {
-            perguntasUsadas.push(pergunta.id);
-            perguntas = [];
-
-            const total = await Pergunta.countDocuments();
-
-            if (perguntasUsadas.length >= total) {
-              try {
-                await sendTelegramMessage(CHAT_ID, "⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
-                setTimeout(() => {
-                  encerrarServidor('Todas as perguntas foram respondidas');
-                }, 2000);
-              } catch (err) {
-                console.error("Falha ao enviar notificação de reinício:", err);
-                encerrarServidor('Erro ao reiniciar servidor');
-              }
-            }
-          }
-          
-          // Só responde se ainda não foi respondido
-          if (!respondido) {
-            respondido = true;
-            res.json({ correta: acertouIA });
-          }
-          
-          return true; // Processamento bem-sucedido
-        } catch (iaError) {
-          // Se a IA falhar, usamos nossa própria verificação como fallback
-          console.error(`❌ Erro ao consultar IA: ${iaError.message}`);
-          clearTimeout(timeoutId);
-          
-          // Se for um erro de timeout, tentaremos novamente
-          const isCancelled = iaError.name === 'AbortError' || iaError.code === 'ECONNABORTED' || 
-                          (iaError.message && iaError.message.includes('timeout'));
-                          
-          if (isCancelled && tentativas < maxTentativas) {
-            console.log(`🔄 Iniciando nova tentativa...`);
-            // Informar o cliente que estamos tentando novamente apenas na primeira falha
-            if (tentativas === 1 && !respondido) {
-              respondido = true;
-              res.json({ 
-                aviso: "Estamos processando sua resposta. A IA está demorando mais que o normal, aguarde enquanto tentamos novamente...",
-                processando: true 
-              });
-            }
-            return false; // Sinaliza que devemos tentar novamente
-          }
-          
-          // Se não for timeout ou já tentamos o máximo, usamos nossa verificação
-          console.log(`Usando verificação local devido a falha da IA: ${resultado}`);
-        }
-      }
+      // Criar um AbortController para poder cancelar a requisição se demorar demais
+      const controller = new AbortController();
       
-      // Se a IA falhou ou é a segunda tentativa, usar nossa própria verificação
+      // Timer para cancelar a requisição após 20 segundos
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.warn("⚠️ Requisição à IA cancelada após 20 segundos");
+        sendTelegramMessage(CHAT_ID, "⚠️ ALERTA: Requisição à IA cancelada após 20 segundos").catch(console.error);
+      }, 20000);
+
+      const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+        model: 'deepseek/deepseek-chat-v3-0324:free',
+        messages: [{ role: 'user', content: prompt }]
+      }, {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost',
+          'X-Title': 'SeuProjetoRoblox'
+        },
+        signal: controller.signal,
+        timeout: 25000
+      });
+
+      // Limpar o timer se a requisição foi bem-sucedida
+      clearTimeout(timeoutId);
+
+      const texto = completion.data?.choices?.[0]?.message?.content?.toLowerCase() || '';
+      const acertou = texto.includes("true");
+      
       // Enviar resultado para o Telegram
-      if (!respondido) {
-        await sendTelegramMessage(CHAT_ID, 
-          `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n` +
-          `${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'}\n` +
-          `(Verificação local)`
-        );
-        
-        if (acertou) {
-          perguntasUsadas.push(pergunta.id);
-          perguntas = [];
+      await sendTelegramMessage(CHAT_ID, 
+        `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n` +
+        `${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'}\n` +
+        `Resposta esperada: "${pergunta.correta}"`
+      );
 
-          const total = await Pergunta.countDocuments();
+      if (acertou) {
+        perguntasUsadas.push(pergunta.id);
+        perguntas = [];
 
-          if (perguntasUsadas.length >= total) {
-            try {
-              await sendTelegramMessage(CHAT_ID, "⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
-              setTimeout(() => {
-                encerrarServidor('Todas as perguntas foram respondidas');
-              }, 2000);
-            } catch (err) {
-              console.error("Falha ao enviar notificação de reinício:", err);
-              encerrarServidor('Erro ao reiniciar servidor');
-            }
+        const total = await Pergunta.countDocuments();
+        if (perguntasUsadas.length >= total) {
+          try {
+            await sendTelegramMessage(CHAT_ID, "⚠️ Todas as perguntas foram respondidas! Reiniciando o servidor...");
+            setTimeout(() => {
+              encerrarServidor('Todas as perguntas foram respondidas');
+            }, 2000);
+          } catch (err) {
+            console.error("Falha ao enviar notificação de reinício:", err);
+            encerrarServidor('Erro ao reiniciar servidor');
           }
         }
-        
+      }
+
+      // Só responde se ainda não foi respondido
+      if (!respondido) {
         respondido = true;
-        res.json({ 
-          correta: acertou,
-          verificacao: "local" // Indicar que usamos verificação local
-        });
+        res.json({ correta: acertou });
       }
       
-      return true; // Processamento concluído
-      
+      return true; // Processamento bem-sucedido
+
     } catch (error) {
       console.error(`❌ Erro ao processar resposta (tentativa ${tentativas}):`, error.message);
-      sendTelegramMessage(CHAT_ID, `❌ Erro ao processar resposta (tentativa ${tentativas}): ${error.message}`).catch(console.error);
       
-      // Se ainda não atingimos o máximo de tentativas, podemos tentar novamente
-      if (tentativas < maxTentativas) {
+      // Se for um erro de timeout, tentaremos novamente
+      const isCancelled = error.name === 'AbortError' || error.code === 'ECONNABORTED' || 
+                       (error.message && error.message.includes('timeout'));
+                       
+      if (isCancelled && tentativas < maxTentativas) {
         console.log(`🔄 Iniciando nova tentativa...`);
+        // Informar o cliente que estamos tentando novamente apenas na primeira falha
+        if (tentativas === 1 && !respondido) {
+          respondido = true;
+          res.json({ 
+            aviso: "Estamos processando sua resposta. A IA está demorando mais que o normal, aguarde enquanto tentamos novamente...",
+            processando: true 
+          });
+        }
         return false; // Sinaliza que devemos tentar novamente
       }
       
       // Se chegamos aqui, já tentamos o máximo de vezes
-      // Se ainda não respondemos ao cliente, responder com verificação local
       if (!respondido) {
         respondido = true;
-        
-        // Usar nossa verificação local como última instância
-        const resultado = verificarResposta(resposta, pergunta.correta);
-        
-        await sendTelegramMessage(CHAT_ID, 
-          `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n` +
-          `${resultado ? '✅ CORRETA!' : '❌ INCORRETA!'}\n` +
-          `(Verificação local de fallback após erros)`
-        );
-        
-        if (resultado) {
-          perguntasUsadas.push(pergunta.id);
-          perguntas = [];
-        }
-        
-        res.json({ 
-          correta: resultado,
-          verificacao: "local_fallback"
-        });
+        res.status(500).json({ erro: "Erro ao verificar resposta." });
       }
       
       return true; // Não tentar novamente
@@ -553,16 +468,16 @@ Responda apenas com a dica.
         sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: Requisição à IA para dica cancelada após 20 segundos (tentativa ${tentativas})`).catch(console.error);
       }, 20000);
 
-      const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'deepseek/deepseek-chat-v3-0324:free',
-        messages: [{ role: 'user', content: prompt }]
-      }, {
-        headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'http://localhost',
-          'X-Title': 'SeuProjetoRoblox'
-        },
+    const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      model: 'deepseek/deepseek-chat-v3-0324:free',
+      messages: [{ role: 'user', content: prompt }]
+    }, {
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost',
+        'X-Title': 'SeuProjetoRoblox'
+      },
         signal: controller.signal,
         timeout: 25000 // Um pouco maior que o AbortController para dar chance ao cancelamento
       });
@@ -570,19 +485,19 @@ Responda apenas com a dica.
       // Limpar o timer se a requisição foi bem-sucedida
       clearTimeout(timeoutId);
 
-      const dica = completion.data?.choices?.[0]?.message?.content?.trim();
-      
-      // Enviar dica para o Telegram
-      await sendTelegramMessage(CHAT_ID, `💡 DICA SOLICITADA: "${dica}"`);
-      
+    const dica = completion.data?.choices?.[0]?.message?.content?.trim();
+    
+    // Enviar dica para o Telegram
+    await sendTelegramMessage(CHAT_ID, `💡 DICA SOLICITADA: "${dica}"`);
+    
       // Só responde se ainda não foi respondido
       if (!respondido) {
         respondido = true;
-        res.json({ dica });
+    res.json({ dica });
       }
 
       return true; // Requisição bem-sucedida
-    } catch (error) {
+  } catch (error) {
       // Verifica se foi um erro de timeout ou abort
       const isCancelled = error.name === 'AbortError' || error.code === 'ECONNABORTED' || 
                           (error.message && error.message.includes('timeout'));
@@ -679,8 +594,8 @@ Responda apenas com a dica.
             `⚠️ DICA AUTOMÁTICA CRIATIVA após falha da IA!\n` +
             `💡 DICA GERADA: "${dicaCriativa}"`
           );
-          
-          res.json({ 
+    
+    res.json({
             dica: dicaCriativa,
             aviso: "Dica gerada automaticamente devido a problemas técnicos com a IA."
           });
@@ -741,7 +656,7 @@ app.post('/reiniciar', async (req, res) => {
     // Marcar fim da reinicialização
     reinicializacaoEmAndamento = false;
 
-    res.json({ 
+    res.json({
       mensagem: "Servidor reinicializado com sucesso!",
       totalPerguntas: todas.length
     });
@@ -762,9 +677,205 @@ app.post('/reiniciar', async (req, res) => {
   }
 });
 
-// Iniciar o servidor
-app.listen(port, () => {
-  console.log(`✅ Servidor rodando na porta ${port}`);
+// Rota para gerar mensagem via IA
+app.post('/gerar-mensagem', async (req, res) => {
+    try {
+        const { tipo } = req.body;
+        let mensagem = "";
+
+        if (tipo === "recusar") {
+            const respostasOfensivas = [
+                "Tá certo... melhor não passar vergonha mesmo.",
+                "Decisão sábia. Com esse desempenho, nem o sistema te aceita.",
+                "Eu também teria vergonha de salvar esse fracasso.",
+                "Evitar o banco foi a única coisa inteligente que você fez hoje.",
+                "Você jogou ou foi só um surto coletivo?"
+            ];
+            mensagem = respostasOfensivas[Math.floor(Math.random() * respostasOfensivas.length)];
+        } else if (tipo === "credenciais_invalidas") {
+            const respostasCredenciais = [
+                "Não sabe nem digitar as próprias credenciais? Impressionante.",
+                "CPF ou senha incorretos. Tente usar o cérebro dessa vez.",
+                "Errou as credenciais? Deve ser difícil mesmo lembrar números.",
+                "Credenciais erradas. Mas com esse QI, não me surpreende."
+            ];
+            mensagem = respostasCredenciais[Math.floor(Math.random() * respostasCredenciais.length)];
+        }
+
+        res.json({ mensagem });
+    } catch (err) {
+        console.error("Erro ao gerar mensagem:", err);
+        res.status(500).json({ erro: "Erro ao gerar mensagem" });
+    }
+});
+
+// Rota para salvar estatísticas
+app.post('/salvar-estatisticas', async (req, res) => {
+    try {
+        const { cpf, senha, estatisticas } = req.body;
+        
+        if (!cpf || !senha || !estatisticas) {
+            return res.json({
+                sucesso: false,
+                mensagem: "Dados incompletos"
+            });
+        }
+
+        const aluno = await Aluno.findOne({ cpf: cpf.replace(/[^\d]/g, '') });
+        
+        if (!aluno) {
+            return res.json({
+                sucesso: false,
+                mensagem: "Aluno não encontrado"
+            });
+        }
+
+        const senhaCorreta = await aluno.verificarSenha(senha);
+        if (!senhaCorreta) {
+            return res.json({
+                sucesso: false,
+                mensagem: "Senha incorreta"
+            });
+        }
+
+        aluno.estatisticas.push({
+            ...estatisticas,
+            data: new Date()
+        });
+
+        await aluno.save();
+        
+        return res.json({
+            sucesso: true,
+            mensagem: "Estatísticas salvas com sucesso"
+        });
+
+    } catch (error) {
+        console.error("Erro ao salvar estatísticas:", error);
+        return res.json({
+            sucesso: false,
+            mensagem: "Erro ao salvar estatísticas"
+        });
+    }
+});
+
+// Rota para verificar CPF
+app.post('/verificar-cpf', async (req, res) => {
+    try {
+        const { cpf } = req.body;
+
+        if (!cpf || cpf.replace(/[^\d]/g, '').length !== 11) {
+            return res.json({ 
+                sucesso: false, 
+                mensagem: "CPF inválido" 
+            });
+        }
+
+        const aluno = await Aluno.findOne({ cpf: cpf.replace(/[^\d]/g, '') });
+
+        if (aluno) {
+            return res.json({ 
+                sucesso: true, 
+                mensagem: "CPF encontrado",
+                nome: aluno.nome
+            });
+        } else {
+            return res.json({ 
+                sucesso: false, 
+                mensagem: "CPF não encontrado" 
+            });
+        }
+
+    } catch (error) {
+        console.error("Erro ao verificar CPF:", error);
+        return res.json({ 
+            sucesso: false, 
+            mensagem: "Erro ao verificar CPF" 
+        });
+    }
+});
+
+// Rota para verificar credenciais
+app.post('/verificar-aluno', async (req, res) => {
+    try {
+        const { cpf, senha } = req.body;
+
+        if (!cpf || !senha) {
+            return res.json({ 
+                sucesso: false, 
+                mensagem: "CPF e senha são obrigatórios" 
+            });
+        }
+
+        const aluno = await Aluno.findOne({ cpf: cpf.replace(/[^\d]/g, '') });
+
+        if (!aluno) {
+            return res.json({ 
+                sucesso: false, 
+                mensagem: "CPF não encontrado" 
+            });
+        }
+
+        const senhaCorreta = await aluno.verificarSenha(senha);
+        if (!senhaCorreta) {
+            return res.json({ 
+                sucesso: false, 
+                mensagem: "Senha incorreta" 
+            });
+        }
+
+        return res.json({ 
+            sucesso: true, 
+            mensagem: "Login realizado com sucesso",
+            nome: aluno.nome
+        });
+
+    } catch (error) {
+        console.error("Erro ao verificar credenciais:", error);
+        return res.json({ 
+            sucesso: false, 
+            mensagem: "Erro ao verificar credenciais" 
+        });
+    }
+});
+
+// Inicializar servidor após conectar aos bancos
+Promise.all([
+    alunosConnection.asPromise(),
+    perguntasConnection.asPromise()
+]).then(async () => {
+    console.log("✅ Conectado aos bancos de dados com sucesso!");
+    
+    try {
+        // Verificar conexão com banco de ALUNOS
+        const totalAlunos = await Usuario.countDocuments();
+        console.log(`👥 Total de alunos cadastrados: ${totalAlunos}`);
+        
+        // Verificar conexão com banco de PERGUNTAS
+        const totalPerguntas = await Pergunta.countDocuments();
+        console.log(`📚 Total de perguntas no banco: ${totalPerguntas}`);
+        
+        await sendTelegramMessage(CHAT_ID, 
+            `✅ Servidor iniciado!\n` +
+            `👥 Alunos cadastrados: ${totalAlunos}\n` +
+            `📚 Perguntas disponíveis: ${totalPerguntas}`
+        );
+        
+        // Resetar controles de perguntas
+        perguntasUsadas = [];
+        perguntas = [];
+        
+        // Iniciar o servidor HTTP
+        app.listen(port, () => {
+            console.log(`🚀 Servidor rodando na porta ${port}`);
+        });
+    } catch (err) {
+        console.error("❌ Erro ao inicializar servidor:", err);
+        process.exit(1);
+    }
+}).catch(err => {
+    console.error("❌ Erro ao conectar aos bancos de dados:", err);
+    process.exit(1);
 });
 
 
