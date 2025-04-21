@@ -70,21 +70,21 @@ end
 
 -- NOVO: Função para bloquear completamente o chat do jogador
 local function bloquearChatJogador(player)
-	jogadorBloqueadoAposSalvamento[player.UserId] = true
-	remote:FireClient(player, "Resultado", "⚠️ O chat foi bloqueado. O jogo será reiniciado em breve.")
+    jogadorBloqueadoAposSalvamento[player.UserId] = true
+    remote:FireClient(player, "Resultado", "⚠️ O chat foi bloqueado. O jogo será reiniciado em breve.")
 end
 
 -- Função para salvar dados do jogador (modificada)
 -- Função automática para iniciar o salvamento
 local function SalvarDados(player, estatisticas)
 	local userId = player.UserId
-
+	
 	-- Marcar que o jogador está em modo de salvamento
 	jogadorEmModoSalvamento[userId] = true
-
+	
 	-- Inicializar contador de tentativas
 	tentativasCPF[userId] = 0
-
+	
 	respostasTemporarias[userId] = {
 		etapa = "verificarCPF",
 		estatisticas = estatisticas
@@ -119,7 +119,7 @@ local function processarEtapasSalvarDados(player, msg)
 
 	if dados.etapa == "senha" then
 		dados.senha = msg
-
+		
 		-- Enviar para o servidor para verificar CPF e senha e salvar estatísticas
 		local payload = HttpService:JSONEncode({
 			cpf = dados.cpf,
@@ -128,7 +128,7 @@ local function processarEtapasSalvarDados(player, msg)
 		})
 
 		remote:FireClient(player, "Resultado", "⏳ Verificando credenciais e salvando dados...")
-
+		
 		local success, result = pcall(function()
 			return HttpService:PostAsync(
 				SALVAR_ESTATISTICAS_URL,
@@ -142,17 +142,17 @@ local function processarEtapasSalvarDados(player, msg)
 			if response.ok then
 				-- Mensagem clara sobre credenciais válidas
 				remote:FireClient(player, "Resultado", "✅ Credenciais válidas! Dados salvos com sucesso!")
-
+				
 				-- Bloquear o chat do jogador após salvamento bem-sucedido
 				bloquearChatJogador(player)
-
+				
 				-- Aguardar 3 segundos e fechar o jogo automaticamente
 				task.wait(3)
 				TeleportService:Teleport(game.PlaceId, player)
 			else
 				-- NOVO: Verificar tentativas e dar mais chances
 				tentativasCPF[userId] = (tentativasCPF[userId] or 0) + 1
-
+				
 				if tentativasCPF[userId] >= 3 then
 					-- Após 3 tentativas, bloquear e reiniciar
 					remote:FireClient(player, "Resultado", "❌ Credenciais inválidas! Você excedeu o número de tentativas.")
@@ -163,7 +163,7 @@ local function processarEtapasSalvarDados(player, msg)
 					-- Mensagem clara sobre credenciais inválidas
 					local mensagemErro = response.mensagem or response.msg or "Erro desconhecido"
 					remote:FireClient(player, "Resultado", "❌ Credenciais inválidas! " .. mensagemErro)
-
+					
 					-- Voltar para a etapa de CPF para tentar novamente
 					dados.etapa = "verificarCPF"
 					task.wait(2)
@@ -173,7 +173,7 @@ local function processarEtapasSalvarDados(player, msg)
 		else
 			-- NOVO: Verificar tentativas e dar mais chances
 			tentativasCPF[userId] = (tentativasCPF[userId] or 0) + 1
-
+			
 			if tentativasCPF[userId] >= 3 then
 				-- Após 3 tentativas, bloquear e reiniciar
 				remote:FireClient(player, "Resultado", "❌ Erro ao verificar credenciais! Você excedeu o número de tentativas.")
@@ -187,7 +187,7 @@ local function processarEtapasSalvarDados(player, msg)
 				else
 					remote:FireClient(player, "Resultado", "❌ Erro ao salvar dados. Tente novamente.")
 				end
-
+				
 				-- Voltar para a etapa de CPF para tentar novamente
 				dados.etapa = "verificarCPF"
 				task.wait(2)
@@ -258,17 +258,17 @@ local function enviarPergunta(player)
 	if not jogadorTerminouIntroducao[player.UserId] then
 		return
 	end
-
+	
 	-- Verificar se o jogador está em modo de salvamento ou bloqueado após salvamento
 	if jogadorEmModoSalvamento[player.UserId] or jogadorBloqueadoAposSalvamento[player.UserId] then
 		return
 	end
-
+	
 	-- NOVO: Verificar se a pergunta já foi enviada para evitar duplicação
 	if perguntaEnviada[player.UserId] then
 		return
 	end
-
+	
 	-- Marcar que a pergunta está sendo enviada
 	perguntaEnviada[player.UserId] = true
 
@@ -295,7 +295,7 @@ local function enviarPergunta(player)
 
 		-- Depois envia a pergunta para o chat (apenas uma vez)
 		remote:FireClient(player, "Pergunta", pergunta.pergunta)
-
+		
 		-- NOVO: Desmarcar que a pergunta foi enviada após um tempo
 		task.delay(1, function()
 			perguntaEnviada[player.UserId] = false
@@ -303,7 +303,7 @@ local function enviarPergunta(player)
 	else
 		warn("Erro ao buscar pergunta:", response)
 		remote:FireClient(player, "Resultado", "❌ Erro ao buscar pergunta.")
-
+		
 		-- NOVO: Desmarcar que a pergunta foi enviada em caso de erro
 		perguntaEnviada[player.UserId] = false
 	end
@@ -315,7 +315,7 @@ local function verificarResposta(player, mensagem)
 	if not jogadorTerminouIntroducao[player.UserId] then
 		return
 	end
-
+	
 	-- Verificar se o jogador está em modo de salvamento ou bloqueado após salvamento
 	if jogadorEmModoSalvamento[player.UserId] or jogadorBloqueadoAposSalvamento[player.UserId] then
 		return
@@ -348,7 +348,7 @@ local function verificarResposta(player, mensagem)
 			atualizarDinheiro(player, total)
 			player:SetAttribute("PerguntasRespondidas", player:GetAttribute("PerguntasRespondidas") + 1)
 			player:SetAttribute("Acertos", player:GetAttribute("Acertos") + 1)
-
+			
 			-- Usar a mensagem retornada pelo servidor, se disponível
 			local mensagemSucesso = resultado.mensagem or "✅ Resposta correta!"
 			remote:FireClient(player, "Resultado", mensagemSucesso)
@@ -592,7 +592,7 @@ Players.PlayerAdded:Connect(function(player)
 
 			-- Verificar se o jogador está no processo de salvar dados
 			local userId = player.UserId
-
+			
 			-- Se o jogador está em modo de salvamento, processar apenas entradas de CPF e senha
 			if jogadorEmModoSalvamento[userId] then
 				local dadosSalvamento = respostasTemporarias[userId]
@@ -705,7 +705,7 @@ end)
 -- Quando jogador sai
 Players.PlayerRemoving:Connect(function(player)
 	local userId = player.UserId
-
+	
 	-- Limpar dados do jogador
 	jogadorEmModoSalvamento[userId] = nil
 	jogadorBloqueadoAposSalvamento[userId] = nil
@@ -729,7 +729,7 @@ remote.OnServerEvent:Connect(function(player, tipo, conteudo)
 		if not jogadorTerminouIntroducao[player.UserId] then
 			return
 		end
-
+		
 		-- Verificar se o jogador está em modo de salvamento ou bloqueado após salvamento
 		if jogadorEmModoSalvamento[player.UserId] or jogadorBloqueadoAposSalvamento[player.UserId] then
 			return
