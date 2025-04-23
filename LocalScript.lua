@@ -26,3 +26,5 @@ remote.OnClientEvent:Connect(function(tipo, mensagem, animado)
 		warn("Não foi possível acessar o canal de chat.")
 	end
 end)
+
+COLOCAR PERGUNTA E RESPOSTA NO CHAT, ASSIM FICA MEIO JOGADO!!! MUDAR ISSO!!!!!
