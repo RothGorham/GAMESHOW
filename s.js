@@ -20,15 +20,15 @@ const sendTelegramMessage = async (chatId, message) => {
     try {
       bot.telegram.sendMessage(chatId, message)
         .then(() => {
-          console.log(✅ Mensagem enviada para Telegram: ${message});
+          console.log(`✅ Mensagem enviada para Telegram: ${message}`);
           resolve(true);
         })
         .catch(error => {
-          console.error(❌ Erro ao enviar mensagem para Telegram: ${error.message});
+          console.error(`❌ Erro ao enviar mensagem para Telegram: ${error.message}`);
           reject(error);
         });
     } catch (error) {
-      console.error(❌ Erro ao tentar enviar mensagem para Telegram: ${error.message});
+      console.error(`❌ Erro ao tentar enviar mensagem para Telegram: ${error.message}`);
       reject(error);
     }
   });
@@ -95,7 +95,7 @@ const Aluno = alunosConnection.model('Aluno', usuarioSchema);
 // Tratamento de erros global
 process.on('uncaughtException', async (error) => {
   isServerHealthy = false;
-  const errorMsg = ⚠️ ERRO CRÍTICO: O servidor encontrou um erro não tratado: ${error.message};
+  const errorMsg = `⚠️ ERRO CRÍTICO: O servidor encontrou um erro não tratado: ${error.message}`;
   console.error(errorMsg, error.stack);
   
   try {
@@ -112,7 +112,7 @@ process.on('uncaughtException', async (error) => {
 });
 
 process.on('unhandledRejection', async (reason, promise) => {
-  const errorMsg = ⚠️ AVISO: Promessa rejeitada não tratada: ${reason};
+  const errorMsg = `⚠️ AVISO: Promessa rejeitada não tratada: ${reason}`;
   console.error(errorMsg);
   
   try {
@@ -140,18 +140,18 @@ const monitorServerHealth = () => {
       const memoryUsage = process.memoryUsage();
       const memoryUsageMB = Math.round(memoryUsage.rss / 1024 / 1024);
       if (memoryUsageMB > 500) { // Alerta se usar mais de 500MB
-        await sendTelegramMessage(CHAT_ID, ⚠️ ALERTA: Uso de memória alto (${memoryUsageMB}MB)!);
+        await sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: Uso de memória alto (${memoryUsageMB}MB)!`);
       }
       
       // Calcular tempo de atividade
       const uptime = Math.floor((new Date() - serverStartTime) / 1000 / 60 / 60); // em horas
       if (uptime % 24 === 0 && uptime > 0) { // Notificar a cada 24 horas
-        await sendTelegramMessage(CHAT_ID, 📊 INFO: Servidor ativo há ${uptime} horas.);
+        await sendTelegramMessage(CHAT_ID, `📊 INFO: Servidor ativo há ${uptime} horas.`);
       }
     } catch (err) {
       console.error("❌ Erro no monitoramento de saúde:", err);
       try {
-        await sendTelegramMessage(CHAT_ID, ❌ Erro no monitor de saúde: ${err.message});
+        await sendTelegramMessage(CHAT_ID, `❌ Erro no monitor de saúde: ${err.message}`);
       } catch (telegramErr) {
         console.error("Falha ao enviar notificação de erro de monitoramento:", telegramErr);
       }
@@ -174,17 +174,17 @@ mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.n
     perguntas = [];
 
     const todas = await Pergunta.find();
-    console.log(📚 Total de perguntas no banco: ${todas.length});
-    await sendTelegramMessage(CHAT_ID, 📚 Total de perguntas no banco: ${todas.length});
+    console.log(`📚 Total de perguntas no banco: ${todas.length}`);
+    await sendTelegramMessage(CHAT_ID, `📚 Total de perguntas no banco: ${todas.length}`);
     
     // Contar e enviar o número de alunos no banco de dados
     try {
       const totalAlunos = await Aluno.countDocuments();
-      await sendTelegramMessage(CHAT_ID, 👥 Total de alunos no banco: ${totalAlunos});
-      console.log(👥 Total de alunos no banco: ${totalAlunos});
+      await sendTelegramMessage(CHAT_ID, `👥 Total de alunos no banco: ${totalAlunos}`);
+      console.log(`👥 Total de alunos no banco: ${totalAlunos}`);
     } catch (err) {
       console.error("❌ Erro ao contar alunos:", err);
-      await sendTelegramMessage(CHAT_ID, ❌ Erro ao contar alunos: ${err.message});
+      await sendTelegramMessage(CHAT_ID, `❌ Erro ao contar alunos: ${err.message}`);
     }
     
     console.log("🔁 Perguntas usadas resetadas no início do servidor.");
@@ -195,7 +195,7 @@ mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.n
     console.error("❌ Erro ao inicializar servidor:", err);
     console.error("❌ Erro ao buscar perguntas:", err);
     try {
-      await sendTelegramMessage(CHAT_ID, ❌ Erro ao buscar perguntas: ${err.message});
+      await sendTelegramMessage(CHAT_ID, `❌ Erro ao buscar perguntas: ${err.message}`);
     } catch (telegramErr) {
       console.error("Falha ao enviar notificação de erro inicial:", telegramErr);
     }
@@ -204,7 +204,7 @@ mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.n
 .catch(async err => {
   console.error("❌ Erro ao conectar com o MongoDB:", err);
   try {
-    await sendTelegramMessage(CHAT_ID, ❌ CRÍTICO: Erro ao conectar com o MongoDB: ${err.message});
+    await sendTelegramMessage(CHAT_ID, `❌ CRÍTICO: Erro ao conectar com o MongoDB: ${err.message}`);
   } catch (telegramErr) {
     console.error("Falha ao enviar notificação de erro de conexão:", telegramErr);
   }
@@ -219,7 +219,7 @@ mongoose.connect('mongodb+srv://24950092:W7e3HGBYuh1X5jps@game.c3vnt2d.mongodb.n
     }).catch(async reconnectErr => {
       console.error("❌ Falha na reconexão:", reconnectErr);
       try {
-        await sendTelegramMessage(CHAT_ID, ❌ CRÍTICO: Falha na reconexão: ${reconnectErr.message});
+        await sendTelegramMessage(CHAT_ID, `❌ CRÍTICO: Falha na reconexão: ${reconnectErr.message}`);
       } catch (telegramErr) {
         console.error("Falha ao enviar notificação de erro de reconexão:", telegramErr);
       }
@@ -236,12 +236,12 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
     const durationMinutes = (duration / 60000).toFixed(2); // Converter para minutos com 2 casas decimais
-    const log = ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMinutes} minutos;
+    const log = `${req.method} ${req.originalUrl} ${res.statusCode} ${durationMinutes} minutos`;
     
     // Registrar requisições lentas (mais de 5 segundos = 0.083 minutos)
     if (duration > 5000) {
-      console.warn(⚠️ Requisição lenta: ${log});
-      sendTelegramMessage(CHAT_ID, ⚠️ Requisição lenta detectada: ${log}).catch(console.error);
+      console.warn(`⚠️ Requisição lenta: ${log}`);
+      sendTelegramMessage(CHAT_ID, `⚠️ Requisição lenta detectada: ${log}`).catch(console.error);
     }
   });
   
@@ -269,12 +269,12 @@ app.get('/pergunta', async (req, res) => {
     ];
 
     // Enviar resposta automaticamente para o Telegram
-    await sendTelegramMessage(CHAT_ID, 📝 NOVA PERGUNTA: "${sorteada.pergunta}"\n🔑 RESPOSTA: "${sorteada.correta}");
+    await sendTelegramMessage(CHAT_ID, `📝 NOVA PERGUNTA: "${sorteada.pergunta}"\n🔑 RESPOSTA: "${sorteada.correta}"`);
 
     res.json(perguntas[0]);
   } catch (err) {
     console.error("❌ Erro ao buscar pergunta:", err.message);
-    sendTelegramMessage(CHAT_ID, ❌ Erro ao buscar pergunta: ${err.message}).catch(console.error);
+    sendTelegramMessage(CHAT_ID, `❌ Erro ao buscar pergunta: ${err.message}`).catch(console.error);
     res.status(500).json({ erro: "Erro ao buscar pergunta." });
   }
 });
@@ -290,14 +290,14 @@ app.post('/resposta', async (req, res) => {
   const pergunta = perguntas[0];
 
   // Usar apenas a IA para verificação de respostas
-  const prompt = 
+  const prompt = `
 A resposta correta para a pergunta "${pergunta.pergunta}" é "${pergunta.correta}".
 O jogador respondeu: "${resposta}"
 
 Verifique se a resposta do jogador está correta, se tiver erros de acentuação ou pontuação, tudo bem!
 
 Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
-;
+`;
 
   // Criar uma flag para notificar lentidão
   let notificadoLentidao = false;
@@ -313,7 +313,7 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
     
     // Registra no console e notifica via Telegram
     console.warn("⚠️ IA demorando mais de 40 segundos para processar resposta!");
-    sendTelegramMessage(CHAT_ID, ⚠️ ALERTA: IA demorando mais de 40 segundos para processar resposta!).catch(console.error);
+    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para processar resposta!`).catch(console.error);
   }, 40000);
 
   try {
@@ -322,7 +322,7 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
       messages: [{ role: 'user', content: prompt }]
     }, {
       headers: {
-        'Authorization': Bearer ${OPENROUTER_API_KEY},
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'http://localhost',
         'X-Title': 'SeuProjetoRoblox'
@@ -342,7 +342,7 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
     const acertou = texto.includes("true");
 
     // Enviar resultado para o Telegram
-    await sendTelegramMessage(CHAT_ID, 🎮 RESPOSTA DO JOGADOR: "${resposta}"\n${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'});
+    await sendTelegramMessage(CHAT_ID, `🎮 RESPOSTA DO JOGADOR: "${resposta}"\n${acertou ? '✅ CORRETA!' : '❌ INCORRETA!'}`);
 
     if (acertou) {
       perguntasUsadas.push(pergunta.id);
@@ -385,7 +385,7 @@ Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
     }
     
     console.error("❌ Erro ao consultar IA:", error.message);
-    sendTelegramMessage(CHAT_ID, ❌ Erro ao consultar IA: ${error.message}).catch(console.error);
+    sendTelegramMessage(CHAT_ID, `❌ Erro ao consultar IA: ${error.message}`).catch(console.error);
     
     // Adicionar mensagem para erro
     res.status(500).json({ 
@@ -404,7 +404,7 @@ app.get('/dica', async (req, res) => {
 
   const pergunta = perguntas[0];
 
-  const prompt = 
+  const prompt = `
 A pergunta é: "${pergunta.pergunta}"
 A resposta correta é: "${pergunta.correta}"
 
@@ -417,7 +417,7 @@ Atenção:
 - Nunca fale a mesma dica duas vezes seguidas.
 
 Responda apenas com a dica.
-;
+`;
 
   // Criar uma flag para notificar lentidão
   let notificadoLentidao = false;
@@ -433,7 +433,7 @@ Responda apenas com a dica.
     
     // Registra no console e notifica via Telegram
     console.warn("⚠️ IA demorando mais de 40 segundos para gerar dica!");
-    sendTelegramMessage(CHAT_ID, ⚠️ ALERTA: IA demorando mais de 40 segundos para gerar dica!).catch(console.error);
+    sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para gerar dica!`).catch(console.error);
   }, 40000);
 
   try {
@@ -442,7 +442,7 @@ Responda apenas com a dica.
       messages: [{ role: 'user', content: prompt }]
     }, {
       headers: {
-        'Authorization': Bearer ${OPENROUTER_API_KEY},
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'http://localhost',
         'X-Title': 'SeuProjetoRoblox'
@@ -461,7 +461,7 @@ Responda apenas com a dica.
     const dica = completion.data?.choices?.[0]?.message?.content?.trim();
     
     // Enviar dica para o Telegram
-    await sendTelegramMessage(CHAT_ID, 💡 DICA SOLICITADA: "${dica}");
+    await sendTelegramMessage(CHAT_ID, `💡 DICA SOLICITADA: "${dica}"`);
     
     res.json({ dica });
 
@@ -475,7 +475,7 @@ Responda apenas com a dica.
     }
     
     console.error("❌ Erro ao gerar dica:", error.message);
-    sendTelegramMessage(CHAT_ID, ❌ Erro ao gerar dica: ${error.message}).catch(console.error);
+    sendTelegramMessage(CHAT_ID, `❌ Erro ao gerar dica: ${error.message}`).catch(console.error);
     res.status(500).json({ erro: "Erro ao gerar dica." });
   }
 });
@@ -494,7 +494,7 @@ app.get('/admin/resposta', async (req, res) => {
   }
   
   try {
-    await sendTelegramMessage(CHAT_ID, ⚠️ ALERTA: Alguém acessou a resposta via painel admin!);
+    await sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: Alguém acessou a resposta via painel admin!`);
     
     res.json({
       pergunta: perguntas[0].pergunta,
@@ -514,7 +514,7 @@ app.post('/reiniciar', async (req, res) => {
   const todas = await Pergunta.find();
   console.log("♻️ Perguntas reiniciadas manualmente.");
   try {
-    await sendTelegramMessage(CHAT_ID, ♻️ Jogo reiniciado manualmente. Perguntas disponíveis: ${todas.length});
+    await sendTelegramMessage(CHAT_ID, `♻️ Jogo reiniciado manualmente. Perguntas disponíveis: ${todas.length}`);
   } catch (err) {
     console.error("Falha ao enviar notificação de reinício manual:", err);
   }
@@ -537,7 +537,7 @@ app.get('/status', async (req, res) => {
     const totalAlunos = await Aluno.countDocuments();
 
     try {
-      await sendTelegramMessage(CHAT_ID, 📊 STATUS: ${usadas}/${total} perguntas usadas. Restantes: ${restantes}. Total de alunos: ${totalAlunos});
+      await sendTelegramMessage(CHAT_ID, `📊 STATUS: ${usadas}/${total} perguntas usadas. Restantes: ${restantes}. Total de alunos: ${totalAlunos}`);
     } catch (err) {
       console.error("Falha ao enviar notificação de status:", err);
     }
@@ -548,14 +548,14 @@ app.get('/status', async (req, res) => {
       perguntasRestantes: restantes,
       totalAlunos: totalAlunos,
       serverHealth: {
-        uptime: ${uptime} minutos,
-        memory: ${memoryUsage} MB,
+        uptime: `${uptime} minutos`,
+        memory: `${memoryUsage} MB`,
         mongoConnection: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'
       }
     });
   } catch (err) {
     console.error("❌ Erro ao obter status:", err.message);
-    sendTelegramMessage(CHAT_ID, ❌ Erro ao obter status: ${err.message}).catch(console.error);
+    sendTelegramMessage(CHAT_ID, `❌ Erro ao obter status: ${err.message}`).catch(console.error);
     res.status(500).json({ erro: "Erro ao obter status." });
   }
 });
@@ -567,13 +567,13 @@ app.get('/health', (req, res) => {
   if (mongoStatus === 'connected' && isServerHealthy) {
     res.status(200).json({ 
       status: 'ok',
-      uptime: ${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos,
+      uptime: `${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos`,
       mongo: mongoStatus
     });
   } else {
     res.status(503).json({ 
       status: 'unhealthy',
-      uptime: ${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos,
+      uptime: `${Math.floor((new Date() - serverStartTime) / 1000 / 60)} minutos`,
       mongo: mongoStatus
     });
     }
@@ -624,7 +624,7 @@ app.post('/salvar-estatisticas', async (req, res) => {
         }
         
         if (!usuario) {
-            console.log(❌ CPF não encontrado: ${cpfNormalizado});
+            console.log(`❌ CPF não encontrado: ${cpfNormalizado}`);
             return res.status(401).json({ 
                 ok: false, 
                 msg: "CPF não encontrado",
@@ -634,7 +634,7 @@ app.post('/salvar-estatisticas', async (req, res) => {
 
         // Verificar senha diretamente (comparação simples)
         if (usuario.senha !== senha) {
-            console.log(❌ Senha inválida para CPF: ${cpfNormalizado});
+            console.log(`❌ Senha inválida para CPF: ${cpfNormalizado}`);
             return res.status(401).json({ 
                 ok: false, 
                 msg: "Senha inválida",
@@ -665,7 +665,7 @@ app.post('/salvar-estatisticas', async (req, res) => {
         await usuario.save();
         
         // Notificar via Telegram
-        await sendTelegramMessage(CHAT_ID, 📊 Novo registro de estatísticas salvo para ${usuario.nome || 'Usuário'} (CPF: ${cpfNormalizado}));
+        await sendTelegramMessage(CHAT_ID, `📊 Novo registro de estatísticas salvo para ${usuario.nome || 'Usuário'} (CPF: ${cpfNormalizado})`);
 
         return res.json({ 
             ok: true,
@@ -673,7 +673,7 @@ app.post('/salvar-estatisticas', async (req, res) => {
         });
     } catch (err) {
         console.error("❌ Erro ao salvar estatísticas:", err);
-        sendTelegramMessage(CHAT_ID, ❌ Erro ao salvar estatísticas: ${err.message}).catch(console.error);
+        sendTelegramMessage(CHAT_ID, `❌ Erro ao salvar estatísticas: ${err.message}`).catch(console.error);
         return res.status(500).json({ 
             ok: false, 
             msg: err.message,
@@ -689,7 +689,7 @@ app.use((req, res) => {
 
 // Tratamento global de erros
 app.use(async (err, req, res, next) => {
-  const errorMsg = ❌ Erro interno do servidor: ${err.message};
+  const errorMsg = `❌ Erro interno do servidor: ${err.message}`;
   console.error(errorMsg);
   
   try {
@@ -703,14 +703,14 @@ app.use(async (err, req, res, next) => {
 
 // Inicia o servidor
 const server = app.listen(port, '0.0.0.0', async () => {
-  console.log(🚀 Servidor rodando em http://localhost:${port});
+  console.log(`🚀 Servidor rodando em http://localhost:${port}`);
   try {
-    await sendTelegramMessage(CHAT_ID, 🚀 Servidor rodando em http://localhost:${port});
+    await sendTelegramMessage(CHAT_ID, `🚀 Servidor rodando em http://localhost:${port}`);
     
     // Contar e enviar o número de alunos no banco de dados
     try {
       const totalAlunos = await Aluno.countDocuments();
-      await sendTelegramMessage(CHAT_ID, 👥 Total de alunos no banco: ${totalAlunos});
+      await sendTelegramMessage(CHAT_ID, `👥 Total de alunos no banco: ${totalAlunos}`);
     } catch (err) {
       console.error("❌ Erro ao contar alunos:", err);
     }
@@ -730,12 +730,12 @@ const gracefulShutdown = async (signal) => {
   }
   
   isShuttingDown = true;
-  console.log(⚠️ Sinal ${signal} recebido. Iniciando encerramento...);
+  console.log(`⚠️ Sinal ${signal} recebido. Iniciando encerramento...`);
   
   try {
     // Tentar enviar a notificação primeiro
     console.log("Enviando notificação de encerramento para Telegram...");
-    await sendTelegramMessage(CHAT_ID, ⚠️ Servidor sendo encerrado (sinal ${signal}));
+    await sendTelegramMessage(CHAT_ID, `⚠️ Servidor sendo encerrado (sinal ${signal})`);
     console.log("✅ Notificação de encerramento enviada com sucesso!");
   } catch (err) {
     console.error("❌ Falha ao enviar notificação de encerramento:", err);
@@ -751,7 +751,7 @@ const gracefulShutdown = async (signal) => {
       await mongoose.connection.close();
       console.log('Conexão MongoDB fechada.');
       try {
-        await sendTelegramMessage(CHAT_ID, 📴 Servidor encerrado corretamente.);
+        await sendTelegramMessage(CHAT_ID, `📴 Servidor encerrado corretamente.`);
         console.log("✅ Notificação final enviada com sucesso!");
       } catch (err) {
         console.error("❌ Falha ao enviar notificação final:", err);
@@ -760,7 +760,7 @@ const gracefulShutdown = async (signal) => {
     } catch (err) {
       console.error('Erro ao fechar conexão MongoDB:', err);
       try {
-        await sendTelegramMessage(CHAT_ID, ❌ Erro ao encerrar servidor: ${err.message});
+        await sendTelegramMessage(CHAT_ID, `❌ Erro ao encerrar servidor: ${err.message}`);
       } catch (telegramErr) {
         console.error("Falha ao enviar notificação de erro de encerramento:", telegramErr);
       }
@@ -788,3 +788,4 @@ process.on('SIGINT', () => {
 
 // Para dar tempo de mandar a msg para o telegram depois do Ctrl+C
 process.stdin.resume();
+
