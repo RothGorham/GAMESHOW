@@ -2,9 +2,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
 local remote = ReplicatedStorage:WaitForChild("NotificarJogador")
 
-remote.OnClientEvent:Connect(function(titulo, mensagem)
+remote.OnClientEvent:Connect(function(tipo, mensagem, animado)
 	-- Ignora se for "Ocultar"
-	if titulo == "Ocultar" then return end
+	if tipo == "Ocultar" then return end
 
 	-- Garante que o canal geral está disponível
 	local success, canal = pcall(function()
@@ -12,8 +12,16 @@ remote.OnClientEvent:Connect(function(titulo, mensagem)
 	end)
 
 	if success and canal then
-		local msgFinal = "[" .. titulo .. "]: " .. mensagem
-		canal:DisplaySystemMessage(msgFinal)
+		local mensagemFormatada = mensagem
+
+		-- Formatação específica baseada no tipo
+		if tipo == "Pergunta" then
+			mensagemFormatada = "❓ " .. mensagem
+		elseif tipo == "Resultado" then
+			
+		end
+
+		canal:DisplaySystemMessage(mensagemFormatada)
 	else
 		warn("Não foi possível acessar o canal de chat.")
 	end
