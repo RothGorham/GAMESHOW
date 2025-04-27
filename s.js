@@ -53,10 +53,12 @@ const estatSub = new mongoose.Schema({
     erros: Number,
     ajudas: Number,
     pulos: Number,
+    universitarios: Number, // NOVO: Adicionado campo para universitários
     totalGanho: Number,
     gastoErro: Number,
     gastoAjuda: Number,
     gastoPulo: Number,
+    gastoUniversitarios: Number, // NOVO: Adicionado campo para gasto com universitários
     createdAt: { type: Date, default: Date.now }
 }, { _id: false });
 
@@ -289,14 +291,22 @@ app.post('/resposta', async (req, res) => {
 
   const pergunta = perguntas[0];
 
-  // Usar apenas a IA para verificação de respostas
-  const prompt = `
-A resposta correta para a pergunta "${pergunta.pergunta}" é "${pergunta.correta}".
-O jogador respondeu: "${resposta}"
+// Usar apenas a IA para verificação de respostas
+const prompt = `
+Pergunta: "${pergunta.pergunta}"
+Resposta correta esperada: "${pergunta.correta}"
+Resposta do jogador: "${resposta}"
 
-Verifique se a resposta do jogador está correta, se tiver erros de acentuação ou pontuação, tudo bem!
+Sua tarefa é verificar se a resposta do jogador está correta.
 
+Regras:
+- Se o significado da resposta do jogador for equivalente à resposta correta, mesmo com erros de acentuação ou pontuação, CONSIDERE CORRETO.
+- Se a resposta for um palavrão, ofensa, resposta vazia, ou fora de contexto (ex: "fodase", "sei lá", "não sei"), CONSIDERE ERRADO.
+- Seja rigoroso: respostas que não demonstrem tentativa real de responder devem ser consideradas ERRADAS.
+
+IMPORTANTE:
 Responda apenas com: true (se estiver correta) ou false (se estiver incorreta).
+NÃO escreva mais nada além de true ou false.
 `;
 
   // Criar uma flag para notificar lentidão
@@ -480,6 +490,149 @@ Responda apenas com a dica.
   }
 });
 
+// NOVA ROTA: Gera alternativas para o comando "universitarios!"
+app.get('/alternativas', async (req, res) => {
+  try {
+    const { id } = req.query;
+    
+    // Verificar se há uma pergunta ativa
+    if (!perguntas.length) {
+      return res.status(404).json({ 
+        erro: "Nenhuma pergunta ativa para gerar alternativas.",
+        mensagem: "Pergunta muito simples, pedido negado, tente mais tarde" 
+      });
+    }
+
+    const pergunta = perguntas[0];
+    
+    // Verificar se a pergunta é muito simples (menos de 15 caracteres)
+    if (pergunta.pergunta.length < 15 || pergunta.correta.length < 3) {
+      await sendTelegramMessage(CHAT_ID, `🎓 UNIVERSITÁRIOS: Pergunta muito simples, pedido negado: "${pergunta.pergunta}"`);
+      return res.json({ 
+        mensagem: "Pergunta muito simples, pedido negado, tente mais tarde" 
+      });
+    }
+
+    const prompt = `
+Pergunta: "${pergunta.pergunta}"
+Resposta correta: "${pergunta.correta}"
+
+Gere 5 alternativas para esta pergunta, sendo 1 correta e 4 incorretas. A alternativa correta deve ser exatamente igual à resposta correta fornecida.
+
+Regras:
+- A alternativa correta deve ser exatamente: "${pergunta.correta}"
+- As 4 alternativas incorretas devem ser plausíveis, mas claramente erradas
+- As alternativas incorretas devem ter formato e estilo semelhantes à correta
+- Cada alternativa deve ser curta e direta
+- Não numere ou identifique as alternativas
+- Não indique qual é a correta
+
+Retorne apenas as 5 alternativas, uma por linha, sem numeração ou marcadores.
+Coloque a alternativa correta em uma posição aleatória entre as 5.
+`;
+
+    // Criar uma flag para notificar lentidão
+    let notificadoLentidao = false;
+
+    // Timer para detectar lentidão (40 segundos)
+    const lentidaoTimer = setTimeout(() => {
+      notificadoLentidao = true;
+      // Envia resposta ao cliente avisando sobre a lentidão
+      res.json({ 
+        aviso: "Estamos consultando os universitários. A IA está demorando mais que o normal, por favor aguarde...",
+        processando: true 
+      });
+      
+      // Registra no console e notifica via Telegram
+      console.warn("⚠️ IA demorando mais de 40 segundos para gerar alternativas!");
+      sendTelegramMessage(CHAT_ID, `⚠️ ALERTA: IA demorando mais de 40 segundos para gerar alternativas!`).catch(console.error);
+    }, 40000);
+
+    try {
+      const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+        model: 'deepseek/deepseek-chat-v3-0324:free',
+        messages: [{ role: 'user', content: prompt }]
+      }, {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost',
+          'X-Title': 'SeuProjetoRoblox'
+        },
+        timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
+      });
+
+      // Limpa o timer de lentidão
+      clearTimeout(lentidaoTimer);
+
+      // Se já enviamos resposta de lentidão, não enviar nova resposta
+      if (notificadoLentidao) {
+        return;
+      }
+
+      // Processar a resposta da IA
+      const texto = completion.data?.choices?.[0]?.message?.content?.trim() || '';
+      
+      // Dividir o texto em linhas e limpar
+      let alternativas = texto.split('\n')
+        .map(alt => alt.trim())
+        .filter(alt => alt.length > 0);
+      
+      // Garantir que temos exatamente 5 alternativas
+      if (alternativas.length < 5) {
+        // Se temos menos de 5, adicionar a resposta correta e algumas genéricas
+        alternativas.push(pergunta.correta);
+        while (alternativas.length < 5) {
+          alternativas.push(`Opção incorreta ${alternativas.length}`);
+        }
+      } else if (alternativas.length > 5) {
+        // Se temos mais de 5, pegar apenas as primeiras 5
+        alternativas = alternativas.slice(0, 5);
+      }
+      
+      // Verificar se a resposta correta está entre as alternativas
+      if (!alternativas.some(alt => alt.toLowerCase().includes(pergunta.correta.toLowerCase()))) {
+        // Se não estiver, substituir uma das alternativas pela resposta correta
+        const randomIndex = Math.floor(Math.random() * 5);
+        alternativas[randomIndex] = pergunta.correta;
+      }
+      
+      // Embaralhar as alternativas
+      alternativas = alternativas.sort(() => Math.random() - 0.5);
+      
+      // Enviar alternativas para o Telegram
+      await sendTelegramMessage(CHAT_ID, `🎓 UNIVERSITÁRIOS SOLICITADOS:\nPergunta: "${pergunta.pergunta}"\nAlternativas: ${alternativas.join(' | ')}`);
+      
+      return res.json({ alternativas });
+
+    } catch (error) {
+      // Limpa o timer de lentidão
+      clearTimeout(lentidaoTimer);
+      
+      // Se já enviamos resposta de lentidão, não enviar nova resposta de erro
+      if (notificadoLentidao) {
+        return;
+      }
+      
+      console.error("❌ Erro ao gerar alternativas:", error.message);
+      sendTelegramMessage(CHAT_ID, `❌ Erro ao gerar alternativas: ${error.message}`).catch(console.error);
+      
+      return res.status(500).json({ 
+        erro: "Erro ao gerar alternativas.",
+        mensagem: "Pergunta muito simples, pedido negado, tente mais tarde" 
+      });
+    }
+  } catch (err) {
+    console.error("❌ Erro na rota de alternativas:", err.message);
+    sendTelegramMessage(CHAT_ID, `❌ Erro na rota de alternativas: ${err.message}`).catch(console.error);
+    
+    return res.status(500).json({ 
+      erro: "Erro ao processar solicitação.",
+      mensagem: "Pergunta muito simples, pedido negado, tente mais tarde" 
+    });
+  }
+});
+
 // Rota protegida por senha para visualizar a resposta atual
 app.get('/admin/resposta', async (req, res) => {
   const { senha } = req.query;
@@ -649,10 +802,12 @@ app.post('/salvar-estatisticas', async (req, res) => {
             erros: estatisticas.erros || 0,
             ajudas: estatisticas.ajudas || 0,
             pulos: estatisticas.pulos || 0,
+            universitarios: estatisticas.universitarios || 0, // NOVO: Campo para universitários
             totalGanho: estatisticas.totalGanho || 0,
             gastoErro: estatisticas.gastoErro || 0,
             gastoAjuda: estatisticas.gastoAjuda || 0,
             gastoPulo: estatisticas.gastoPulo || 0,
+            gastoUniversitarios: estatisticas.gastoUniversitarios || 0, // NOVO: Campo para gasto com universitários
             createdAt: new Date()
         };
 
@@ -788,4 +943,3 @@ process.on('SIGINT', () => {
 
 // Para dar tempo de mandar a msg para o telegram depois do Ctrl+C
 process.stdin.resume();
-
