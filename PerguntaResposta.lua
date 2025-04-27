@@ -57,6 +57,7 @@ local jogadorTerminouIntroducao = {} -- Controle de jogadores que terminaram a i
 local jogadorEmModoSalvamento = {} -- Controle de jogadores em modo de salvamento
 local jogadorBloqueadoAposSalvamento = {} -- Controle de jogadores bloqueados após tentativa de salvamento
 local tentativasCPF = {} -- NOVO: Contador de tentativas de CPF/senha
+local temporizadoresIA = {} -- NOVO: Temporizadores para avisos de demora da IA
 
 -- Atualizar dinheiro
 local function atualizarDinheiro(player, novoValor)
@@ -74,6 +75,53 @@ end
 local function bloquearChatJogador(player)
 	 jogadorBloqueadoAposSalvamento[player.UserId] = true
 	 remote:FireClient(player, "Resultado", "⚠️ O chat foi bloqueado. O jogo será reiniciado em breve.")
+end
+
+-- NOVO: Função para iniciar temporizador de aviso de demora da IA
+local function iniciarTemporizadorIA(player, tipo)
+	local userId = player.UserId
+	
+	-- Limpar temporizador existente, se houver
+	if temporizadoresIA[userId] then
+		task.cancel(temporizadoresIA[userId])
+		temporizadoresIA[userId] = nil
+	end
+	
+	-- Criar novo temporizador
+	temporizadoresIA[userId] = task.delay(8, function() -- 8 segundos é um bom tempo para considerar "demora"
+		if jogadorEmEspera[userId] then
+			local mensagens = {
+				resposta = "⏳ A IA está demorando para analisar sua resposta. Por favor, aguarde mais um pouco...",
+				dica = "⏳ A IA está demorando para gerar sua dica. Por favor, aguarde mais um pouco...",
+				universitarios = "⏳ A IA está demorando para consultar os universitários. Por favor, aguarde mais um pouco..."
+			}
+			
+			local mensagem = mensagens[tipo] or "⏳ A IA está demorando para processar sua solicitação. Por favor, aguarde mais um pouco..."
+			remote:FireClient(player, "Resultado", mensagem)
+			
+			-- Configurar um segundo aviso após mais 10 segundos
+			temporizadoresIA[userId] = task.delay(30, function()
+				if jogadorEmEspera[userId] then
+					remote:FireClient(player, "Resultado", "⏳ A IA ainda está processando. Isso pode levar mais alguns instantes...")
+					
+					-- Configurar um terceiro aviso após mais 15 segundos
+					temporizadoresIA[userId] = task.delay(60, function()
+						if jogadorEmEspera[userId] then
+							remote:FireClient(player, "Resultado", "⚠️ A IA está demorando mais que o normal. Continue aguardando, por favor...")
+						end
+					end)
+				end
+			end)
+		end
+	end)
+end
+
+-- NOVO: Função para limpar temporizador de aviso de demora da IA
+local function limparTemporizadorIA(userId)
+	if temporizadoresIA[userId] then
+		task.cancel(temporizadoresIA[userId])
+		temporizadoresIA[userId] = nil
+	end
 end
 
 -- Função para salvar dados do jogador (modificada)
@@ -130,6 +178,10 @@ local function processarEtapasSalvarDados(player, msg)
 		 })
 
 		 remote:FireClient(player, "Resultado", "⏳ Verificando credenciais e salvando dados...")
+		 
+		 -- NOVO: Iniciar temporizador para aviso de demora
+		 jogadorEmEspera[player.UserId] = true
+		 iniciarTemporizadorIA(player, "salvamento")
 
 		 local success, result = pcall(function()
 			 return HttpService:PostAsync(
@@ -138,6 +190,10 @@ local function processarEtapasSalvarDados(player, msg)
 				 Enum.HttpContentType.ApplicationJson
 			 )
 		 end)
+		 
+		 -- NOVO: Limpar temporizador e status de espera
+		 limparTemporizadorIA(player.UserId)
+		 jogadorEmEspera[player.UserId] = false
 
 		 if success then
 			 local response = HttpService:JSONDecode(result)
@@ -276,10 +332,18 @@ local function enviarPergunta(player)
 
 	-- Marcar que a pergunta está sendo enviada
 	 perguntaEnviada[player.UserId] = true
+	 
+	 -- NOVO: Iniciar temporizador para aviso de demora
+	 jogadorEmEspera[player.UserId] = true
+	 iniciarTemporizadorIA(player, "pergunta")
 
 	 local success, response = pcall(function()
 		 return HttpService:GetAsync(PERGUNTA_URL)
 	 end)
+	 
+	 -- NOVO: Limpar temporizador e status de espera
+	 limparTemporizadorIA(player.UserId)
+	 jogadorEmEspera[player.UserId] = false
 
 	 if success then
 		 local pergunta = HttpService:JSONDecode(response)
@@ -333,6 +397,9 @@ local function verificarResposta(player, mensagem)
 
 	 jogadorEmEspera[player.UserId] = true
 	 remote:FireClient(player, "Resultado", "⏳ ChatGPT está analisando sua resposta...")
+	 
+	 -- NOVO: Iniciar temporizador para aviso de demora
+	 iniciarTemporizadorIA(player, "resposta")
 
 	 local pergunta = perguntasAtuais[player.UserId]
 	 local dados = { id = pergunta.id, resposta = mensagem }
@@ -343,6 +410,9 @@ local function verificarResposta(player, mensagem)
 			 Enum.HttpContentType.ApplicationJson
 		 )
 	 end)
+	 
+	 -- NOVO: Limpar temporizador
+	 limparTemporizadorIA(player.UserId)
 
 	 if success then
 		 local resultado = HttpService:JSONDecode(respostaServer)
@@ -575,6 +645,7 @@ Players.PlayerAdded:Connect(function(player)
 	 jogadorBloqueadoAposSalvamento[player.UserId] = false -- Inicializa como falso
 	 tentativasCPF[player.UserId] = 0 -- Inicializa contador de tentativas
 	 perguntaEnviada[player.UserId] = false -- Inicializa controle de pergunta enviada
+	 temporizadoresIA[player.UserId] = nil -- Inicializa temporizador de aviso de demora da IA
 
 	 HttpService:PostAsync(REINICIAR_URL,
 		 HttpService:JSONEncode({ jogadorId = tostring(player.UserId) }),
@@ -625,10 +696,16 @@ Players.PlayerAdded:Connect(function(player)
 
 				 jogadorEmEspera[player.UserId] = true
 				 remote:FireClient(player, "Resultado", "💡 Gerando uma dica para te ajudar...")
+				 
+				 -- NOVO: Iniciar temporizador para aviso de demora
+				 iniciarTemporizadorIA(player, "dica")
 
 				 local success, respostaDica = pcall(function()
 					 return HttpService:GetAsync(DICA_URL)
 				 end)
+				 
+				 -- NOVO: Limpar temporizador
+				 limparTemporizadorIA(player.UserId)
 
 				 if success then
 					 local somOriginal = ReplicatedStorage:FindFirstChild("SomMensagem")
@@ -693,6 +770,9 @@ Players.PlayerAdded:Connect(function(player)
 
 				 jogadorEmEspera[player.UserId] = true
 				 remote:FireClient(player, "Resultado", "🎓 Buscando ajuda dos universitários...")
+				 
+				 -- NOVO: Iniciar temporizador para aviso de demora
+				 iniciarTemporizadorIA(player, "universitarios")
 
 				 local perguntaId = pergunta.id
 				 local url = ALTERNATIVES_URL .. "?id=" .. HttpService:UrlEncode(perguntaId) -- Codificar ID para URL
@@ -700,6 +780,9 @@ Players.PlayerAdded:Connect(function(player)
 				 local success, respostaAlternativas = pcall(function()
 					 return HttpService:GetAsync(url)
 				 end)
+				 
+				 -- NOVO: Limpar temporizador
+				 limparTemporizadorIA(player.UserId)
 
 				 if success then
 					 local resultado = HttpService:JSONDecode(respostaAlternativas)
@@ -794,6 +877,9 @@ Players.PlayerRemoving:Connect(function(player)
 	 debitosUniversitarios[userId] = nil -- <<-- NOVO
 	 tentativasCPF[userId] = nil
 	 perguntaEnviada[userId] = nil
+	 
+	 -- NOVO: Limpar temporizador de aviso de demora da IA
+	 limparTemporizadorIA(userId)
 end)
 
 -- Configuração do cliente (remoto)
@@ -821,4 +907,3 @@ remote.OnServerEvent:Connect(function(player, tipo, conteudo)
 		 end 
 	 end
 end)
-
