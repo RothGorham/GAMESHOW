@@ -517,18 +517,20 @@ app.get('/alternativas', async (req, res) => {
 Pergunta: "${pergunta.pergunta}"
 Resposta correta: "${pergunta.correta}"
 
-Gere 5 alternativas para esta pergunta, sendo 1 correta e 4 incorretas. A alternativa correta deve ser exatamente igual à resposta correta fornecida.
+Gere exatamente 5 alternativas para a pergunta: "${pergunta.pergunta}"
 
-Regras:
-- A alternativa correta deve ser exatamente: "${pergunta.correta}"
-- As 4 alternativas incorretas devem ser plausíveis, mas claramente erradas
-- As alternativas incorretas devem ter formato e estilo semelhantes à correta
-- Cada alternativa deve ser curta e direta
-- Não numere ou identifique as alternativas
-- Não indique qual é a correta
+REGRAS OBRIGATÓRIAS:
+- A alternativa correta é: "${pergunta.correta}" (ela deve aparecer exatamente como está aqui)
+- As 4 alternativas erradas devem ser plausíveis (sem absurdos), mas claramente incorretas
+- Todas as alternativas devem ser curtas e diretas (no máximo uma linha cada)
+- Todas as alternativas devem ter o mesmo estilo de escrita da correta
+- Não numere, não adicione marcadores, não destaque, nem indique qual é a correta
+- Embaralhe a ordem, colocando a alternativa correta em uma posição aleatória
 
-Retorne apenas as 5 alternativas, uma por linha, sem numeração ou marcadores.
-Coloque a alternativa correta em uma posição aleatória entre as 5.
+⚠️ Atenção:
+- Retorne apenas o texto das 5 alternativas, uma por linha, sem explicações ou comentários
+- Se ocorrer erro ou não souber gerar corretamente, responda apenas: "Erro: pergunta muito simples, pedido negado, tente novamente mais tarde."
+
 `;
 
     // Criar uma flag para notificar lentidão
