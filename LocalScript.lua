@@ -2,29 +2,37 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
 local remote = ReplicatedStorage:WaitForChild("NotificarJogador")
 
-remote.OnClientEvent:Connect(function(tipo, mensagem, animado)
-	-- Ignora se for "Ocultar"
-	if tipo == "Ocultar" then return end
+-- Função para formatar a mensagem com base no tipo
+local function formatarMensagem(tipo, mensagem)
+	if tipo == "Pergunta" then
+		return "❓ " .. mensagem
+	elseif tipo == "Resultado" then
+		return "->" .. mensagem
+	else
+		return mensagem
+	end
+end
 
-	-- Garante que o canal geral está disponível
+-- Função para obter o canal de chat de forma segura
+local function obterCanal()
 	local success, canal = pcall(function()
 		return TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
 	end)
+	return success and canal or nil
+end
 
-	if success and canal then
-		local mensagemFormatada = mensagem
+-- Conexão do evento remoto
+remote.OnClientEvent:Connect(function(tipo, mensagem, animado)
+	if tipo == "Ocultar" then
+		return
+	end
 
-		-- Formatação específica baseada no tipo
-		if tipo == "Pergunta" then
-			mensagemFormatada = "❓ " .. mensagem
-		elseif tipo == "Resultado" then
-			
-		end
+	local canal = obterCanal()
 
+	if canal then
+		local mensagemFormatada = formatarMensagem(tipo, mensagem)
 		canal:DisplaySystemMessage(mensagemFormatada)
 	else
-		warn("Não foi possível acessar o canal de chat.")
+		warn("⚠️ Não foi possível acessar o canal de chat.")
 	end
 end)
-
-COLOCAR PERGUNTA E RESPOSTA NO CHAT, ASSIM FICA MEIO JOGADO!!! MUDAR ISSO!!!!!
