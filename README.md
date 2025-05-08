@@ -61,32 +61,32 @@ Você é **Sofia**, uma mulher que acorda em uma ilha remota e misteriosa. Para 
 
 ---
 
-### ❓ pergunta.png  
+### ❓ Sistema de Pergunta  
 ![pergunta](./FOTOS/pergunta.png)
 
 ---
 
-### ✅ resposta_certa.png  
+### ✅ Resposta Certa  
 ![resposta certa](./FOTOS/resposta_certa.png)
 
 ---
 
-### ❌ reposta_errada.png  
+### ❌ Resposta Errada  
 ![reposta errada](./FOTOS/reposta_errada.png)
 
 ---
 
-### 💡 sistema_dica.png  
+### 💡 Sistema De dica
 ![sistema de dica](./FOTOS/sistema_dica.png)
 
 ---
 
-### ⏭️ sistema_pular.png  
+### ⏭️ Sistema de Pular Pergunta
 ![sistema de pular](./FOTOS/sistema_pular.png)
 
 ---
 
-### 🎓 universitarios.png  
+### 🎓 Sistema de Perguntas
 ![universitarios](./FOTOS/universitarios.png)
 
 ---
