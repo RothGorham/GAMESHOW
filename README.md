@@ -59,33 +59,37 @@ Você é **Sofia**, uma mulher que acorda em uma ilha remota e misteriosa. Para 
 
 ## 📸 Capturas de Tela
 
-### 📸 pergunta.png  
-![pergunta](./pergunta.png)
+---
+
+### ❓ pergunta.png  
+![pergunta](./FOTOS/pergunta.png)
 
 ---
 
 ### ✅ resposta certa.png  
-![resposta certa](./resposta%20certa.png)
+![resposta certa](./FOTOS/resposta%20certa.png)
 
 ---
 
 ### ❌ reposta errada.png  
-![reposta errada](./reposta%20errada.png)
+![reposta errada](./FOTOS/reposta%20errada.png)
 
 ---
 
 ### 💡 sistema de dica!.png  
-![sistema de dica!](./sistema%20de%20dica!.png)
+![sistema de dica](./FOTOS/sistema%20de%20dica%21.png)
 
 ---
 
 ### ⏭️ sistema de pular!.png  
-![sistema de pular!](./sistema%20de%20pular!.png)
+![sistema de pular](./FOTOS/sistema%20de%20pular%21.png)
 
 ---
 
 ### 🎓 universitarios!.png  
-![universitarios!](./universitarios!.png)
+![universitarios](./FOTOS/universitarios%21.png)
 
+---
 
-**Desenvolvido por:** Roth Gorham
+🔧 **Desenvolvido por:** Roth Gorham
+
