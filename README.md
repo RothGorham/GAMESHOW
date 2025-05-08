@@ -17,8 +17,8 @@
 Você é **Sofia**, uma mulher que acorda em uma ilha remota e misteriosa. Para sobreviver e escapar, é preciso:
 
 1. **Enfrentar inimigos** eliminando-os com suas habilidades de FPS.
-2. **Responder perguntas** e escolher alternativas corretas para ganhar dinheiro.
-3. **Gerenciar recursos**: cada comando interativo (dica, pular, universitários) gera um desconto no valor final da partida.
+2. **Responder perguntas** e escolher alternativas corretas para desbloquear portais, bônus e armas especiais.
+3. **Gerenciar recursos**: cada comando interativo (`Ajuda!`, `Dica!`, `pular!`, `universitarios!`) gera uma pontuação/valor que impacta o resultado final da partida.
 
 ---
 
@@ -26,57 +26,43 @@ Você é **Sofia**, uma mulher que acorda em uma ilha remota e misteriosa. Para 
 
 1. **Perguntas Dinâmicas**
 
-   * O jogo exibe uma pergunta no chat do Roblox.
-   * As alternativas são geradas pela IA.
+   * O jogo exibe uma pergunta diretamente no chat.
+   * As alternativas são geradas e validadas em tempo real pela IA DeepSeek.
 
 2. **Combate FPS**
 
-   * Enquanto responde, inimigos surgem pela ilha.
-   * Acerte perguntas e elimine inimigos; errou, perca vida e tempo.
+   * Inimigos surgem na ilha enquanto o jogador responde.
+   * Acertos eliminam inimigos; erros penalizam vida e tempo.
 
-3. **Conexão com IA**
+3. **Sistema de Pontuação**
 
-   * Todas as interações de quiz são processadas pela DeepSeek.
-   * Respostas são validadas em tempo real.
+   * Cada ação de auxílio (`Ajuda!`), dica (`Dica!`), pular pergunta (`pular!`) ou sugestão extra (`universitarios!`) impacta sua pontuação final.
 
 ---
 
 ## 💬 Comandos Disponíveis
 
 * `Ajuda!`
-  Solicita auxílio da IA. Pode ou não ajudar, dependendo do humor do DeepSeek.
+  Solicita auxílio geral da IA.
 
 * `Dica!`
   Gera uma dica complementar. Use com moderação!
-  !\[Sistema de Dica]\(sistema de dica!.png)
+  !\[Sistema de Dica]\(FOTOS/sistema de dica!.png)
 
 * `pular!`
-  Pula a pergunta atual, mas pode penalizar sua pontuação. !\[Sistema de Pular]\(sistema de pular!.png)
+  Pula a pergunta atual, mas pode gerar penalidade.
+  !\[Sistema de Pular]\(FOTOS/sistema de pular!.png)
 
 * `universitarios!`
-  Recebe um conjunto de alternativas sugeridas pelos "universitários" da IA.&#x20;
+  Recebe um conjunto de alternativas sugeridas pela IA.
+  ![Universitários](FOTOS/universitarios!.png)
 
 ---
 
 ## 📸 Capturas de Tela
 
-1. **Pergunta Inicial**\\
+```
 
-2. **Resposta Correta**
-   !\[Resposta Certa]\(resposta certa.png)
-
-3. **Resposta Incorreta**
-   !\[Resposta Errada]\(resposta errada.png)
-
----
-
-## 🚀 Como Jogar
-
-1. Entre no servidor Roblox e escolha o modo de jogo "Ilha do Milhão".
-2. Use sua mira para enfrentar inimigos que surgem pelo mapa.
-3. No chat, responda às perguntas: digite a alternativa ou use um dos comandos.
-4. Sobreviva eliminando inimigos e acumulando pontos — quem acertar mais perguntas e eliminar mais inimigos vence!
-
----
+```
 
 **Desenvolvido por:** Roth Gorham
