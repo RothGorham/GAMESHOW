@@ -47,15 +47,13 @@ Você é **Sofia**, uma mulher que acorda em uma ilha remota e misteriosa. Para 
 
 * `Dica!`
   Gera uma dica complementar. Use com moderação!
-  !\[Sistema de Dica]\(FOTOS/sistema de dica!.png)
 
 * `pular!`
   Pula a pergunta atual, mas pode gerar penalidade.
-  !\[Sistema de Pular]\(FOTOS/sistema de pular!.png)
+
 
 * `universitarios!`
   Recebe um conjunto de alternativas sugeridas pela IA.
-  ![Universitários](FOTOS/universitarios!.png)
 
 ---
 
