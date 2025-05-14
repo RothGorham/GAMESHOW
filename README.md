@@ -86,7 +86,7 @@ Você é **Sofia**, uma mulher que acorda em uma ilha remota e misteriosa. Para 
 
 ---
 
-### 🎓 Sistema de Perguntas
+### 🎓 Sistema de Alternativas
 ![universitarios](./FOTOS/universitarios.png)
 
 ---
