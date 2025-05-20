@@ -92,5 +92,6 @@ Você é **Sofia**, uma mulher que acorda em uma ilha remota e misteriosa. Para 
 ---
 
 🛠️ **Desenvolvido por:** Roth Gorham
-   **Link Projeto:** https://youtu.be/4jQbjt4lSks
+
+📹 **Link Projeto:** https://youtu.be/4jQbjt4lSks
 
