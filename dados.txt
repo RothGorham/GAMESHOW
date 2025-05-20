@@ -22,6 +22,3 @@ pm2 logs ( informacoes)
 
 
 ngrok http 3000
-
-
-fazer sistema de inimogos, fazer o menu do game e sistema de opcao de categoria de perguntas, nao sei ansalizar!!! fora isso esta pronto. e criar o sistema de python com voz do silvio `//opcional//
