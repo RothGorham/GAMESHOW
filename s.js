@@ -44,7 +44,26 @@ let perguntasUsadas = [];
 let serverStartTime = new Date();
 let isServerHealthy = true;
 
-const OPENROUTER_API_KEY = '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';
+// Configuração global da API OpenRouter
+const OPENROUTER_API_KEY = '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';
+const OPENROUTER_MODEL = 'meta-llama/llama-4-maverick';
+const OPENROUTER_CONFIG = {
+  headers: {
+    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': 'http://localhost',
+    'X-Title': 'SeuProjetoRoblox'
+  },
+  timeout: 60000
+};
+
+// Função global para chamadas da API OpenRouter
+const callOpenRouterAPI = async (prompt) => {
+  return await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+    model: OPENROUTER_MODEL,
+    messages: [{ role: 'user', content: prompt }]
+  }, OPENROUTER_CONFIG);
+};
 
 // Definir o schema para estatísticas
 const estatSub = new mongoose.Schema({
@@ -327,18 +346,7 @@ NÃO escreva mais nada além de true ou false.
   }, 40000);
 
   try {
-    const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'deepseek/deepseek-chat-v3-0324:free',
-      messages: [{ role: 'user', content: prompt }]
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost',
-        'X-Title': 'SeuProjetoRoblox'
-      },
-      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
-    });
+    const completion = await callOpenRouterAPI(prompt);
 
     // Limpa o timer de lentidão
     clearTimeout(lentidaoTimer);
@@ -447,18 +455,7 @@ Responda apenas com a dica.
   }, 40000);
 
   try {
-    const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'deepseek/deepseek-chat-v3-0324:free',
-      messages: [{ role: 'user', content: prompt }]
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost',
-        'X-Title': 'SeuProjetoRoblox'
-      },
-      timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
-    });
+    const completion = await callOpenRouterAPI(prompt);
 
     // Limpa o timer de lentidão
     clearTimeout(lentidaoTimer);
@@ -551,18 +548,7 @@ REGRAS OBRIGATÓRIAS:
     }, 40000);
 
     try {
-      const completion = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'deepseek/deepseek-chat-v3-0324:free',
-        messages: [{ role: 'user', content: prompt }]
-      }, {
-        headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'http://localhost',
-          'X-Title': 'SeuProjetoRoblox'
-        },
-        timeout: 60000 // Aumentado para 60 segundos para dar chance à IA responder
-      });
+      const completion = await callOpenRouterAPI(prompt);
 
       // Limpa o timer de lentidão
       clearTimeout(lentidaoTimer);
